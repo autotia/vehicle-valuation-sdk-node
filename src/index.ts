@@ -5,7 +5,22 @@ import type { FetchFunction } from "./core/types.js";
 import { CatalogResource } from "./resources/catalog.js";
 import { ValuationsResource } from "./resources/valuations.js";
 
-export * from "./core/errors.js";
+export {
+  AutotiaConnectionError,
+  AutotiaError,
+  AuthenticationError,
+  BadRequestError,
+  ConflictError,
+  InternalServerError,
+  NotFoundError,
+  PermissionDeniedError,
+  QuotaExceededError,
+  RateLimitError,
+  UnprocessableEntityError,
+  ValuationFailedError,
+  WaiterTimeoutError,
+  type ErrorDetails,
+} from "./core/errors.js";
 export * from "./core/types.js";
 export * from "./resources/types.js";
 export type { TokenProvider } from "./auth/token-provider.js";
