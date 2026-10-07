@@ -608,3 +608,16 @@ test("seguridad: los errores preservan metadatos y no filtran secretos", () => {
   assert.equal(err.executionId, "exec-456");
   assert.equal(JSON.stringify(err).includes("clientSecret"), false);
 });
+
+test("metadatos: package.json tiene repository.url apuntando a github.com/autotia/vehicle-valuation-sdk-node", () => {
+  const pkgPath = path.resolve(import.meta.dirname, "../package.json");
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+  assert.ok(pkg.repository, "package.json debe definir repository");
+  assert.ok(
+    typeof pkg.repository.url === "string" &&
+      pkg.repository.url.includes(
+        "github.com/autotia/vehicle-valuation-sdk-node",
+      ),
+    `repository.url debe apuntar a github.com/autotia/vehicle-valuation-sdk-node, recibido: ${pkg.repository?.url}`,
+  );
+});
