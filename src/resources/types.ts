@@ -1,4 +1,7 @@
-export interface ValuationRequest {
+export type ReportType = "general-price" | string;
+
+export interface OrderRequest {
+  reportType: "general-price" | string;
   mark?: string | undefined;
   model?: string | undefined;
   year: number;
@@ -6,18 +9,20 @@ export interface ValuationRequest {
   odometerKm: number;
 }
 
-export interface ValuationAcceptance {
-  valuationId: string;
+export interface OrderAcceptance {
+  orderId: string;
+  reportType: string;
   status: "PENDING" | "RUNNING";
   pollAfterMs: number;
+  saleId?: string | undefined;
 }
 
-export interface ValuationFailure {
+export interface OrderFailure {
   code: string;
   description: string;
 }
 
-export interface ValuationResultVehicle {
+export interface OrderResultVehicle {
   mark: string;
   model: string;
   year: number;
@@ -27,25 +32,25 @@ export interface ValuationResultVehicle {
   versionApplied: boolean;
 }
 
-export interface ValuationMarketContext {
+export interface OrderMarketContext {
   region: string;
   purchaseSellerType: string;
   saleSellerType: string;
   odometerKm: number;
 }
 
-export interface ValuationPriceOption {
+export interface OrderPriceOption {
   percentile: number;
   priceCLP: number;
 }
 
-export interface ValuationPriceSide {
+export interface OrderPriceSide {
   sellerType: string;
   qualityScore: number;
-  options: ValuationPriceOption[];
+  options: OrderPriceOption[];
 }
 
-export interface ValuationMarginRange {
+export interface OrderMarginRange {
   purchasePercentile: number;
   salePercentile: number;
   purchasePriceCLP: number;
@@ -54,46 +59,48 @@ export interface ValuationMarginRange {
   marginPercent: number;
 }
 
-export interface ValuationGrossMarginEstimate {
+export interface OrderGrossMarginEstimate {
   qualityScore: number;
   disclaimer: string;
-  maxMargin: ValuationMarginRange;
-  minMargin: ValuationMarginRange;
+  maxMargin: OrderMarginRange;
+  minMargin: OrderMarginRange;
 }
 
-export interface ValuationFreshness {
+export interface OrderFreshness {
   lastValidLogicalDay: string;
   ageDays: number;
   status: string;
 }
 
-export interface ValuationMethodology {
+export interface OrderMethodology {
   qualityVersion: string;
   smoothingVersion: string;
   algorithmVersion: string;
 }
 
-export interface ValuationResultData {
-  vehicle: ValuationResultVehicle;
-  marketContext: ValuationMarketContext;
-  purchase: ValuationPriceSide;
-  sale: ValuationPriceSide;
-  grossMarginEstimate: ValuationGrossMarginEstimate;
-  freshness: ValuationFreshness;
-  methodology: ValuationMethodology;
+export interface OrderResultData {
+  vehicle: OrderResultVehicle;
+  marketContext: OrderMarketContext;
+  purchase: OrderPriceSide;
+  sale: OrderPriceSide;
+  grossMarginEstimate: OrderGrossMarginEstimate;
+  freshness: OrderFreshness;
+  methodology: OrderMethodology;
   [key: string]: unknown;
 }
 
-export interface ValuationResult {
+export interface OrderResult {
   schemaVersion: "general-price-result-v1" | string;
-  data: ValuationResultData | Record<string, unknown>;
+  data: OrderResultData | Record<string, unknown>;
 }
 
-export interface ValuationStatus {
-  valuationId: string;
+export interface OrderStatus {
+  orderId: string;
+  reportType: string;
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
-  result?: ValuationResult | undefined;
-  failure?: ValuationFailure | undefined;
+  saleId?: string | undefined;
+  result?: OrderResult | undefined;
+  failure?: OrderFailure | undefined;
 }
 
 export interface CatalogRef {

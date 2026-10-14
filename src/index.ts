@@ -3,7 +3,7 @@ import type { TokenProvider } from "./auth/token-provider.js";
 import type { RequestConfig } from "./core/request.js";
 import type { FetchFunction } from "./core/types.js";
 import { CatalogResource } from "./resources/catalog.js";
-import { ValuationsResource } from "./resources/valuations.js";
+import { OrdersResource } from "./resources/orders.js";
 
 export {
   AutotiaConnectionError,
@@ -13,11 +13,11 @@ export {
   ConflictError,
   InternalServerError,
   NotFoundError,
+  OrderFailedError,
   PermissionDeniedError,
   QuotaExceededError,
   RateLimitError,
   UnprocessableEntityError,
-  ValuationFailedError,
   WaiterTimeoutError,
   type ErrorDetails,
 } from "./core/errors.js";
@@ -28,7 +28,7 @@ export type {
   ClientCredentialsTokenProvider,
   ClientCredentialsOptions,
 } from "./auth/client-credentials.js";
-export type { ValuationsResource } from "./resources/valuations.js";
+export type { OrdersResource } from "./resources/orders.js";
 export type { CatalogResource } from "./resources/catalog.js";
 
 export interface VehicleValuationClientOptions {
@@ -59,11 +59,11 @@ const ENVIRONMENTS = {
 } as const;
 
 export class VehicleValuationClient {
-  readonly #valuations: ValuationsResource;
+  readonly #orders: OrdersResource;
   readonly #catalog: CatalogResource;
 
-  public get valuations(): ValuationsResource {
-    return this.#valuations;
+  public get orders(): OrdersResource {
+    return this.#orders;
   }
 
   public get catalog(): CatalogResource {
@@ -117,7 +117,7 @@ export class VehicleValuationClient {
       timeoutMs: options.timeoutMs ?? 30000,
     };
 
-    this.#valuations = new ValuationsResource(config);
+    this.#orders = new OrdersResource(config);
     this.#catalog = new CatalogResource(config);
   }
 }

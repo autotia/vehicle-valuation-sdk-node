@@ -1,13 +1,9 @@
-import { ValuationFailedError, WaiterTimeoutError } from "../core/errors.js";
+import { OrderFailedError, WaiterTimeoutError } from "../core/errors.js";
 import { type RequestConfig, requestData } from "../core/request.js";
 import type { CallOptions } from "../core/types.js";
-import type {
-  ValuationAcceptance,
-  ValuationRequest,
-  ValuationStatus,
-} from "./types.js";
+import type { OrderAcceptance, OrderRequest, OrderStatus } from "./types.js";
 
-export class ValuationsResource {
+export class OrdersResource {
   readonly #config: RequestConfig;
 
   public constructor(config: RequestConfig) {
@@ -15,38 +11,35 @@ export class ValuationsResource {
   }
 
   public create(
-    input: ValuationRequest,
+    input: OrderRequest,
     options: CallOptions = {},
-  ): Promise<ValuationAcceptance | ValuationStatus> {
+  ): Promise<OrderAcceptance | OrderStatus> {
     const opts: CallOptions = options.idempotencyKey
       ? options
       : { ...options, idempotencyKey: crypto.randomUUID() };
-    return requestData<ValuationAcceptance | ValuationStatus>(
+    return requestData<OrderAcceptance | OrderStatus>(
       this.#config,
       "POST",
-      "/v1/vehicle-valuation",
+      "/v1/orders",
       input,
       opts,
     );
   }
 
-  public get(
-    valuationId: string,
-    options: CallOptions = {},
-  ): Promise<ValuationStatus> {
-    return requestData<ValuationStatus>(
+  public get(orderId: string, options: CallOptions = {}): Promise<OrderStatus> {
+    return requestData<OrderStatus>(
       this.#config,
       "GET",
-      `/v1/vehicle-valuation/${encodeURIComponent(valuationId)}`,
+      `/v1/orders/${encodeURIComponent(orderId)}`,
       undefined,
       options,
     );
   }
 
   public async waitUntilComplete(
-    valuationId: string,
+    orderId: string,
     options: CallOptions = {},
-  ): Promise<ValuationStatus> {
+  ): Promise<OrderStatus> {
     const timeout = options.timeoutMs ?? 120000;
     const started = Date.now();
     let delay = options.pollAfterMs ?? 2000;
@@ -59,7 +52,7 @@ export class ValuationsResource {
       }
 
       const remaining = timeout - (Date.now() - started);
-      const status = await this.get(valuationId, {
+      const status = await this.get(orderId, {
         ...options,
         timeoutMs: Math.max(1, remaining),
       });
@@ -67,9 +60,9 @@ export class ValuationsResource {
       if (status.status === "FAILED") {
         const failure = status.failure ?? {
           code: "service_unavailable",
-          description: "La tasación terminó sin resultado.",
+          description: "El pedido terminó sin resultado.",
         };
-        throw new ValuationFailedError(failure.description, {
+        throw new OrderFailedError(failure.description, {
           code: failure.code,
         });
       }

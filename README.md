@@ -33,7 +33,8 @@ const client = new VehicleValuationClient({
   environment: "prod", // o "dev"
 });
 
-const acceptance = await client.valuations.create({
+const acceptance = await client.orders.create({
+  reportType: "general-price",
   mark: "Toyota",
   model: "Yaris",
   year: 2020,
@@ -41,8 +42,8 @@ const acceptance = await client.valuations.create({
   odometerKm: 50000,
 });
 
-const valuation = await client.valuations.waitUntilComplete(acceptance.valuationId);
-console.log(valuation.result);
+const order = await client.orders.waitUntilComplete(acceptance.orderId);
+console.log(order.result);
 ```
 
 La tasación es asíncrona: `create` la solicita y `waitUntilComplete` consulta su estado respetando el intervalo
@@ -52,9 +53,9 @@ que indica la API, hasta que termina o vence el plazo.
 
 | Método | Descripción |
 |---|---|
-| `client.valuations.create(input, options?)` | Solicita una tasación. |
-| `client.valuations.get(valuationId, options?)` | Consulta el estado de una tasación. |
-| `client.valuations.waitUntilComplete(valuationId, options?)` | Espera el resultado de una tasación. |
+| `client.orders.create(input, options?)` | Solicita un pedido de tasación. |
+| `client.orders.get(orderId, options?)` | Consulta el estado de un pedido. |
+| `client.orders.waitUntilComplete(orderId, options?)` | Espera el resultado de un pedido. |
 | `client.catalog.listMarks(options?)` | Lista las marcas del catálogo. |
 | `client.catalog.listModels(...)`, `client.catalog.listYears(...)`, ... | Recorren el catálogo de modelos, años y versiones. |
 
@@ -70,11 +71,11 @@ una app móvil. Si tu plataforma ya administra tokens, usa la opción `tokenProv
 
 ## Idempotencia
 
-`valuations.create` envía siempre un header `Idempotency-Key`. Si no entregas uno, el SDK genera un UUID. Para que
-un reintento de tu propio proceso no genere una segunda tasación, entrega una clave estable de tu negocio:
+`orders.create` envía siempre un header `Idempotency-Key`. Si no entregas uno, el SDK genera un UUID. Para que
+un reintento de tu propio proceso no genere un segundo pedido, entrega una clave estable de tu negocio:
 
 ```ts
-await client.valuations.create(input, { idempotencyKey: "order-123-valuation-1" });
+await client.orders.create(input, { idempotencyKey: "order-123-valuation-1" });
 ```
 
 ## Errores
@@ -95,7 +96,7 @@ Todos los errores heredan de `AutotiaError`, que expone `status`, `code`, `apiRe
 | `InternalServerError` | Servicio no disponible o tiempo agotado (503, 504). | Sí, con espera exponencial |
 | `AutotiaConnectionError` | Falla de red, DNS o conexión. | Sí, con espera exponencial |
 | `WaiterTimeoutError` | `waitUntilComplete` superó su plazo. | No |
-| `ValuationFailedError` | La tasación terminó con error. | No |
+| `OrderFailedError` | El pedido terminó con error. | No |
 
 ## Compatibilidad
 

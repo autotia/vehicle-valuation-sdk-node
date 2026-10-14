@@ -8,8 +8,8 @@ import {
   AutotiaError,
   BadRequestError,
   NotFoundError,
+  OrderFailedError,
   RateLimitError,
-  ValuationFailedError,
   VehicleValuationClient,
   WaiterTimeoutError,
 } from "../dist/index.js";
@@ -98,26 +98,29 @@ for (const tc of fixtures.cases) {
     });
 
     let action;
-    if (tc.operation === "valuations.waitUntilComplete") {
+    if (tc.operation === "orders.waitUntilComplete") {
+      const id =
+        tc.request?.path?.replace?.("/v1/orders/", "") ??
+        "ordb2b_01j7x000000000000000000000";
       action = () =>
-        client.valuations.waitUntilComplete("val-1", {
+        client.orders.waitUntilComplete(id, {
           timeoutMs: 3000,
           pollAfterMs: 20,
         });
     } else if (
-      tc.request.path === "/v1/vehicle-valuation" &&
+      tc.request.path === "/v1/orders" &&
       tc.request.method === "POST"
     ) {
       action = () =>
-        client.valuations.create(
-          { year: 2020, odometerKm: 50000 },
+        client.orders.create(
+          { reportType: "general-price", year: 2020, odometerKm: 50000 },
           tc.request.headers?.["Idempotency-Key"]
             ? { idempotencyKey: tc.request.headers["Idempotency-Key"] }
             : {},
         );
-    } else if (tc.request.path.startsWith("/v1/vehicle-valuation/")) {
-      const id = tc.request.path.replace("/v1/vehicle-valuation/", "");
-      action = () => client.valuations.get(id);
+    } else if (tc.request.path.startsWith("/v1/orders/")) {
+      const id = tc.request.path.replace("/v1/orders/", "");
+      action = () => client.orders.get(id);
     } else if (tc.request.path === "/v1/catalog") {
       action = () => client.catalog.listMarks();
     } else if (tc.request.path.startsWith("/v1/catalog/")) {
@@ -213,7 +216,7 @@ test("constructor: acepta preset dev", () => {
     clientId: "test-client-id",
     clientSecret: "test-client-secret",
   });
-  assert(client.valuations);
+  assert(client.orders);
   assert(client.catalog);
 });
 
@@ -224,7 +227,7 @@ test("constructor: acepta URLs personalizadas", () => {
     clientId: "test-client-id",
     clientSecret: "test-client-secret",
   });
-  assert(client.valuations);
+  assert(client.orders);
   assert(client.catalog);
 });
 
@@ -236,7 +239,7 @@ test("constructor: acepta tokenProvider personalizado", () => {
     environment: "dev",
     tokenProvider: customProvider,
   });
-  assert(client.valuations);
+  assert(client.orders);
   assert(client.catalog);
 });
 
@@ -363,17 +366,18 @@ test("oauth: invalidate() limpia el token en caché", async () => {
 });
 
 // -------------------------------------------------------------------------
-// Unit Tests: Valuations Resource
+// Unit Tests: Orders Resource
 // -------------------------------------------------------------------------
 
-test("valuations.create: genera Idempotency-Key UUID automáticamente si falta", async () => {
+test("orders.create: genera Idempotency-Key UUID automáticamente si falta", async () => {
   let capturedKey = "";
   const mockFetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.pathname.includes("/oauth2/token")) return tokenResponse();
     capturedKey = init.headers?.get?.("Idempotency-Key") ?? "";
     return jsonResponse(202, {
-      valuationId: "val-auto-uuid",
+      orderId: "ordb2b_auto_uuid",
+      reportType: "general-price",
       status: "PENDING",
       pollAfterMs: 2000,
     });
@@ -386,22 +390,28 @@ test("valuations.create: genera Idempotency-Key UUID automáticamente si falta",
     fetch: mockFetch,
   });
 
-  const res = await client.valuations.create({ year: 2021, odometerKm: 30000 });
-  assert.equal(res.valuationId, "val-auto-uuid");
+  const res = await client.orders.create({
+    reportType: "general-price",
+    year: 2021,
+    odometerKm: 30000,
+  });
+  assert.equal(res.orderId, "ordb2b_auto_uuid");
+  assert.equal(res.reportType, "general-price");
   assert.match(
     capturedKey,
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   );
 });
 
-test("valuations.create: preserva Idempotency-Key provista por el usuario", async () => {
+test("orders.create: preserva Idempotency-Key provista por el usuario", async () => {
   let capturedKey = "";
   const mockFetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.pathname.includes("/oauth2/token")) return tokenResponse();
     capturedKey = init.headers?.get?.("Idempotency-Key") ?? "";
     return jsonResponse(202, {
-      valuationId: "val-custom-key",
+      orderId: "ordb2b_custom_key",
+      reportType: "general-price",
       status: "PENDING",
       pollAfterMs: 2000,
     });
@@ -414,18 +424,98 @@ test("valuations.create: preserva Idempotency-Key provista por el usuario", asyn
     fetch: mockFetch,
   });
 
-  await client.valuations.create(
-    { year: 2021, odometerKm: 30000 },
+  await client.orders.create(
+    { reportType: "general-price", year: 2021, odometerKm: 30000 },
     { idempotencyKey: "my-custom-order-key" },
   );
   assert.equal(capturedKey, "my-custom-order-key");
 });
 
-test("valuations.waitUntilComplete: cancelable con AbortSignal", async () => {
+test("orders.create: envía reportType en el body y deserializa orderId y saleId", async () => {
+  let capturedBody = "";
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    capturedBody =
+      typeof init.body === "string" ? init.body : JSON.stringify(init.body);
+    return jsonResponse(202, {
+      orderId: "ordb2b_01j7x000000000000000000001",
+      reportType: "general-price",
+      status: "PENDING",
+      pollAfterMs: 2000,
+      saleId: "sal_01j7x000000000000000000001",
+    });
+  };
+
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "id",
+    clientSecret: "secret",
+    fetch: mockFetch,
+  });
+
+  const res = await client.orders.create({
+    reportType: "general-price",
+    mark: "Toyota",
+    model: "Yaris",
+    year: 2021,
+    odometerKm: 30000,
+  });
+
+  const parsedBody = JSON.parse(capturedBody);
+  assert.equal(parsedBody.reportType, "general-price");
+  assert.equal(parsedBody.mark, "Toyota");
+  assert.equal(parsedBody.year, 2021);
+  assert.equal(res.orderId, "ordb2b_01j7x000000000000000000001");
+  assert.equal(res.reportType, "general-price");
+  assert.equal(res.saleId, "sal_01j7x000000000000000000001");
+});
+
+test("orders.get: consulta por orderId y deserializa orderId, reportType y saleId", async () => {
+  let requestedPath = "";
   const mockFetch = async (input) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.pathname.includes("/oauth2/token")) return tokenResponse();
-    return jsonResponse(202, { valuationId: "val-running", status: "RUNNING" });
+    requestedPath = url.pathname;
+    return jsonResponse(200, {
+      orderId: "ordb2b_01j7x000000000000000000001",
+      reportType: "general-price",
+      status: "COMPLETED",
+      saleId: "sal_01j7x000000000000000000001",
+      result: {
+        schemaVersion: "general-price-result-v1",
+        data: {},
+      },
+    });
+  };
+
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "id",
+    clientSecret: "secret",
+    fetch: mockFetch,
+  });
+
+  const res = await client.orders.get("ordb2b_01j7x000000000000000000001");
+  assert.equal(
+    requestedPath,
+    "/public-secure/shop-b2b/v1/orders/ordb2b_01j7x000000000000000000001",
+  );
+  assert.equal(res.orderId, "ordb2b_01j7x000000000000000000001");
+  assert.equal(res.reportType, "general-price");
+  assert.equal(res.saleId, "sal_01j7x000000000000000000001");
+  assert.equal(res.status, "COMPLETED");
+});
+
+test("orders.waitUntilComplete: cancelable con AbortSignal", async () => {
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    return jsonResponse(202, {
+      orderId: "ordb2b_running",
+      reportType: "general-price",
+      status: "RUNNING",
+    });
   };
 
   const client = new VehicleValuationClient({
@@ -440,7 +530,7 @@ test("valuations.waitUntilComplete: cancelable con AbortSignal", async () => {
 
   await assert.rejects(
     () =>
-      client.valuations.waitUntilComplete("val-running", {
+      client.orders.waitUntilComplete("ordb2b_running", {
         signal: controller.signal,
         pollAfterMs: 50,
         timeoutMs: 5000,
@@ -449,11 +539,15 @@ test("valuations.waitUntilComplete: cancelable con AbortSignal", async () => {
   );
 });
 
-test("valuations.waitUntilComplete: falla cuando timeout es superado", async () => {
+test("orders.waitUntilComplete: falla cuando timeout es superado", async () => {
   const mockFetch = async (input) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.pathname.includes("/oauth2/token")) return tokenResponse();
-    return jsonResponse(202, { valuationId: "val-slow", status: "RUNNING" });
+    return jsonResponse(202, {
+      orderId: "ordb2b_slow",
+      reportType: "general-price",
+      status: "RUNNING",
+    });
   };
 
   const client = new VehicleValuationClient({
@@ -465,7 +559,7 @@ test("valuations.waitUntilComplete: falla cuando timeout es superado", async () 
 
   await assert.rejects(
     () =>
-      client.valuations.waitUntilComplete("val-slow", {
+      client.orders.waitUntilComplete("ordb2b_slow", {
         pollAfterMs: 20,
         timeoutMs: 60,
       }),
@@ -587,7 +681,12 @@ test("reintentos: no reintenta en errores 400, 403, 404, 409", async () => {
   });
 
   await assert.rejects(
-    () => client.valuations.create({ year: 2020, odometerKm: 1000 }),
+    () =>
+      client.orders.create({
+        reportType: "general-price",
+        year: 2020,
+        odometerKm: 1000,
+      }),
     BadRequestError,
   );
 
