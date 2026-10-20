@@ -1,13 +1,27 @@
-import { OrderFailedError, WaiterTimeoutError } from "../core/errors.js";
+import {
+  OrderFailedError,
+  TrimInferenceError,
+  WaiterTimeoutError,
+} from "../core/errors.js";
 import { type RequestConfig, requestData } from "../core/request.js";
 import type { CallOptions } from "../core/types.js";
-import type { OrderAcceptance, OrderRequest, OrderStatus } from "./types.js";
+import { CatalogResource } from "./catalog.js";
+import type {
+  OrderAcceptance,
+  OrderFromTrimTextOptions,
+  OrderFromTrimTextRequest,
+  OrderFromTrimTextResult,
+  OrderRequest,
+  OrderStatus,
+} from "./types.js";
 
 export class OrdersResource {
   readonly #config: RequestConfig;
+  readonly #catalog: CatalogResource;
 
   public constructor(config: RequestConfig) {
     this.#config = config;
+    this.#catalog = new CatalogResource(config);
   }
 
   public create(
@@ -24,6 +38,92 @@ export class OrdersResource {
       input,
       opts,
     );
+  }
+
+  public async createFromTrimText(
+    input: OrderFromTrimTextRequest,
+    options: OrderFromTrimTextOptions = {},
+  ): Promise<OrderFromTrimTextResult> {
+    const inferenceOptions: CallOptions = {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    };
+    const inference = await this.#catalog.inferTrim(
+      {
+        mark: input.mark,
+        model: input.model,
+        year: input.year,
+        text: input.trimText,
+        limit: input.limit,
+      },
+      inferenceOptions,
+    );
+
+    if (inference.outcome === "no_evidence") {
+      throw new TrimInferenceError(
+        "El texto no aporta evidencia suficiente para determinar una versión.",
+        inference.outcome,
+        inference.versions,
+      );
+    }
+
+    if (inference.outcome === "no_match") {
+      throw new TrimInferenceError(
+        "El texto no coincide con ninguna versión del catálogo para el año indicado.",
+        inference.outcome,
+        inference.versions,
+      );
+    }
+
+    const firstCandidate = inference.versions[0];
+    if (
+      inference.outcome !== "matched" ||
+      !inference.versions ||
+      inference.versions.length === 0 ||
+      !firstCandidate
+    ) {
+      throw new TrimInferenceError(
+        `No fue posible determinar una versión compatible (resultado: ${inference.outcome}).`,
+        inference.outcome,
+        inference.versions ?? [],
+      );
+    }
+    if (
+      options.minConfidence !== undefined &&
+      firstCandidate.confidence < options.minConfidence
+    ) {
+      throw new TrimInferenceError(
+        `La confianza del candidato principal (${firstCandidate.confidence}) es inferior al umbral mínimo requerido (${options.minConfidence}).`,
+        inference.outcome,
+        inference.versions,
+      );
+    }
+
+    const selectedVersion = firstCandidate.version;
+
+    const orderOptions: CallOptions = {
+      idempotencyKey: options.idempotencyKey,
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+      pollAfterMs: options.pollAfterMs,
+    };
+
+    const orderRequest: OrderRequest = {
+      reportType: input.reportType,
+      mark: input.mark,
+      model: input.model,
+      year: input.year,
+      version: selectedVersion,
+      odometerKm: input.odometerKm,
+    };
+
+    const order = await this.create(orderRequest, orderOptions);
+
+    return {
+      order,
+      inference,
+      selectedVersion,
+    };
   }
 
   public get(orderId: string, options: CallOptions = {}): Promise<OrderStatus> {

@@ -10,6 +10,7 @@ import {
   NotFoundError,
   OrderFailedError,
   RateLimitError,
+  TrimInferenceError,
   VehicleValuationClient,
   WaiterTimeoutError,
 } from "../dist/index.js";
@@ -121,6 +122,19 @@ for (const tc of fixtures.cases) {
     } else if (tc.request.path.startsWith("/v1/orders/")) {
       const id = tc.request.path.replace("/v1/orders/", "");
       action = () => client.orders.get(id);
+    } else if (
+      tc.request.path === "/v1/version-inference" &&
+      tc.request.method === "POST"
+    ) {
+      action = () =>
+        client.catalog.inferTrim(
+          tc.request.body ?? {
+            mark: "Chevrolet",
+            model: "Camaro",
+            year: 2013,
+            text: "3.6 RS coupe mecanico",
+          },
+        );
     } else if (tc.request.path === "/v1/catalog") {
       action = () => client.catalog.listMarks();
     } else if (tc.request.path.startsWith("/v1/catalog/")) {
@@ -718,5 +732,420 @@ test("metadatos: package.json tiene repository.url apuntando a github.com/autoti
         "github.com/autotia/vehicle-valuation-sdk-node",
       ),
     `repository.url debe apuntar a github.com/autotia/vehicle-valuation-sdk-node, recibido: ${pkg.repository?.url}`,
+  );
+});
+
+// -------------------------------------------------------------------------
+// Unit Tests: Trim Inference and createFromTrimText
+// -------------------------------------------------------------------------
+
+test("catalog.inferTrim: envía cuerpo JSON correcto y recibe resultado", async () => {
+  let capturedBody = null;
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) {
+      return tokenResponse();
+    }
+    if (url.pathname.includes("/v1/version-inference")) {
+      capturedBody = JSON.parse(init.body);
+      return jsonResponse(200, {
+        catalogVersion: "cat-test-1",
+        outcome: "matched",
+        totalCandidates: 1,
+        versions: [{ version: "3.6 L RS MT", confidence: 100 }],
+      });
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  const res = await client.catalog.inferTrim({
+    mark: "Chevrolet",
+    model: "Camaro",
+    year: 2013,
+    text: "3.6 RS coupe",
+    limit: 3,
+  });
+
+  assert.deepEqual(capturedBody, {
+    mark: "Chevrolet",
+    model: "Camaro",
+    year: 2013,
+    text: "3.6 RS coupe",
+    limit: 3,
+  });
+  assert.equal(res.catalogVersion, "cat-test-1");
+  assert.equal(res.outcome, "matched");
+  assert.equal(res.totalCandidates, 1);
+  assert.equal(res.versions[0]?.version, "3.6 L RS MT");
+  assert.equal(res.versions[0]?.confidence, 100);
+});
+
+test("orders.createFromTrimText: matched crea pedido con versions[0].version", async () => {
+  let inferenceBody = null;
+  let orderBody = null;
+
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) {
+      return tokenResponse();
+    }
+    if (url.pathname.includes("/v1/version-inference")) {
+      inferenceBody = JSON.parse(init.body);
+      return jsonResponse(200, {
+        catalogVersion: "cat-v1",
+        outcome: "matched",
+        totalCandidates: 2,
+        versions: [
+          { version: "1.5 GL MT", confidence: 85 },
+          { version: "1.5 XLi MT", confidence: 15 },
+        ],
+      });
+    }
+    if (url.pathname.includes("/v1/orders")) {
+      orderBody = JSON.parse(init.body);
+      return jsonResponse(
+        202,
+        {
+          orderId: "ordb2b_from_trim_1",
+          reportType: "general-price",
+          status: "PENDING",
+          pollAfterMs: 2000,
+        },
+        { status: 202 },
+      );
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  const res = await client.orders.createFromTrimText({
+    reportType: "general-price",
+    mark: "Toyota",
+    model: "Yaris",
+    year: 2020,
+    trimText: "1.5 GL sedan mecanico",
+    odometerKm: 45000,
+  });
+
+  assert.equal(inferenceBody.text, "1.5 GL sedan mecanico");
+  assert.equal(orderBody.version, "1.5 GL MT");
+  assert.equal(orderBody.mark, "Toyota");
+  assert.equal(orderBody.model, "Yaris");
+  assert.equal(orderBody.year, 2020);
+  assert.equal(orderBody.odometerKm, 45000);
+  assert.equal(res.selectedVersion, "1.5 GL MT");
+  assert.equal(res.order.orderId, "ordb2b_from_trim_1");
+  assert.equal(res.inference.outcome, "matched");
+});
+
+test("orders.createFromTrimText: no_evidence lanza TrimInferenceError sin llamar a orders.create", async () => {
+  let orderCalls = 0;
+
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    if (url.pathname.includes("/v1/version-inference")) {
+      return jsonResponse(200, {
+        catalogVersion: "cat-v1",
+        outcome: "no_evidence",
+        totalCandidates: 2,
+        versions: [
+          { version: "1.5 GL MT", confidence: 50 },
+          { version: "1.5 XLi MT", confidence: 50 },
+        ],
+      });
+    }
+    if (url.pathname.includes("/v1/orders")) {
+      orderCalls++;
+      return jsonResponse(202, { orderId: "should-not-be-called" });
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  await assert.rejects(
+    client.orders.createFromTrimText({
+      reportType: "general-price",
+      mark: "Toyota",
+      model: "Yaris",
+      year: 2020,
+      trimText: "auto azul",
+      odometerKm: 45000,
+    }),
+    (err) => {
+      assert(err instanceof TrimInferenceError);
+      assert.equal(err.outcome, "no_evidence");
+      assert.equal(err.versions.length, 2);
+      return true;
+    },
+  );
+
+  assert.equal(orderCalls, 0);
+});
+
+test("orders.createFromTrimText: no_match lanza TrimInferenceError sin llamar a orders.create", async () => {
+  let orderCalls = 0;
+
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    if (url.pathname.includes("/v1/version-inference")) {
+      return jsonResponse(200, {
+        catalogVersion: "cat-v1",
+        outcome: "no_match",
+        totalCandidates: 0,
+        versions: [],
+      });
+    }
+    if (url.pathname.includes("/v1/orders")) {
+      orderCalls++;
+      return jsonResponse(202, { orderId: "should-not-be-called" });
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  await assert.rejects(
+    client.orders.createFromTrimText({
+      reportType: "general-price",
+      mark: "Toyota",
+      model: "Yaris",
+      year: 2020,
+      trimText: "v8 biturbo diesel 4x4",
+      odometerKm: 45000,
+    }),
+    (err) => {
+      assert(err instanceof TrimInferenceError);
+      assert.equal(err.outcome, "no_match");
+      assert.deepEqual(err.versions, []);
+      return true;
+    },
+  );
+
+  assert.equal(orderCalls, 0);
+});
+
+test("orders.createFromTrimText: minConfidence bajo umbral lanza TrimInferenceError", async () => {
+  let orderCalls = 0;
+
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    if (url.pathname.includes("/v1/version-inference")) {
+      return jsonResponse(200, {
+        catalogVersion: "cat-v1",
+        outcome: "matched",
+        totalCandidates: 2,
+        versions: [
+          { version: "1.5 GL MT", confidence: 55 },
+          { version: "1.5 XLi MT", confidence: 45 },
+        ],
+      });
+    }
+    if (url.pathname.includes("/v1/orders")) {
+      orderCalls++;
+      return jsonResponse(202, { orderId: "should-not-be-called" });
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  await assert.rejects(
+    client.orders.createFromTrimText(
+      {
+        reportType: "general-price",
+        mark: "Toyota",
+        model: "Yaris",
+        year: 2020,
+        trimText: "1.5 mecanico",
+        odometerKm: 45000,
+      },
+      { minConfidence: 70 },
+    ),
+    (err) => {
+      assert(err instanceof TrimInferenceError);
+      assert.equal(err.outcome, "matched");
+      assert.equal(err.versions[0]?.confidence, 55);
+      return true;
+    },
+  );
+
+  assert.equal(orderCalls, 0);
+});
+
+test("orders.createFromTrimText: propaga Idempotency-Key solo a orders.create", async () => {
+  let inferenceHeaders = null;
+  let orderHeaders = null;
+
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    if (url.pathname.includes("/v1/version-inference")) {
+      inferenceHeaders = init.headers ?? {};
+      return jsonResponse(200, {
+        catalogVersion: "cat-v1",
+        outcome: "matched",
+        totalCandidates: 1,
+        versions: [{ version: "1.5 GL MT", confidence: 100 }],
+      });
+    }
+    if (url.pathname.includes("/v1/orders")) {
+      orderHeaders = init.headers ?? {};
+      return jsonResponse(
+        202,
+        {
+          orderId: "ordb2b_idem_1",
+          reportType: "general-price",
+          status: "PENDING",
+          pollAfterMs: 2000,
+        },
+        { status: 202 },
+      );
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  await client.orders.createFromTrimText(
+    {
+      reportType: "general-price",
+      mark: "Toyota",
+      model: "Yaris",
+      year: 2020,
+      trimText: "1.5 GL",
+      odometerKm: 45000,
+    },
+    { idempotencyKey: "my-stable-key-123" },
+  );
+
+  const getHeader = (headers, name) => {
+    if (!headers) return null;
+    if (typeof headers.get === "function") return headers.get(name);
+    return headers[name] ?? headers[name.toLowerCase()] ?? null;
+  };
+
+  assert.equal(getHeader(inferenceHeaders, "Idempotency-Key"), null);
+  assert.equal(getHeader(orderHeaders, "Idempotency-Key"), "my-stable-key-123");
+});
+
+test("orders.createFromTrimText: respeta signal cancelado", async () => {
+  const controller = new AbortController();
+  controller.abort();
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: async () => tokenResponse(),
+  });
+
+  await assert.rejects(
+    client.orders.createFromTrimText(
+      {
+        reportType: "general-price",
+        mark: "Toyota",
+        model: "Yaris",
+        year: 2020,
+        trimText: "1.5",
+        odometerKm: 1000,
+      },
+      { signal: controller.signal },
+    ),
+  );
+});
+
+test("catalog.inferTrim: mapeo de errores HTTP 400 y 404 year_not_found", async () => {
+  const mockFetchWithError = (status, code, description) => {
+    return async (input) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+      return jsonResponse(status, null, { error: { code, description } });
+    };
+  };
+
+  const client400 = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetchWithError(400, "invalid_request", "Parámetros inválidos"),
+  });
+  await assert.rejects(
+    client400.catalog.inferTrim({
+      mark: "Chevrolet",
+      model: "Camaro",
+      year: 2013,
+      text: "",
+    }),
+    (err) => {
+      assert(err instanceof BadRequestError);
+      assert.equal(err.code, "invalid_request");
+      return true;
+    },
+  );
+
+  const client404 = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetchWithError(404, "year_not_found", "Año no encontrado"),
+  });
+  await assert.rejects(
+    client404.catalog.inferTrim({
+      mark: "Chevrolet",
+      model: "Camaro",
+      year: 1950,
+      text: "3.6",
+    }),
+    (err) => {
+      assert(err instanceof NotFoundError);
+      assert.equal(err.code, "year_not_found");
+      return true;
+    },
   );
 });

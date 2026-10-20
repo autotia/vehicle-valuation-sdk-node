@@ -53,13 +53,71 @@ que indica la API, hasta que termina o vence el plazo.
 
 | Método | Descripción |
 |---|---|
-| `client.orders.create(input, options?)` | Solicita un pedido de tasación. |
+| `client.orders.create(input, options?)` | Solicita un pedido de tasación entregando la versión exacta. |
+| `client.orders.createFromTrimText(input, options?)` | Infiere la versión a partir de texto libre y solicita la tasación. |
 | `client.orders.get(orderId, options?)` | Consulta el estado de un pedido. |
 | `client.orders.waitUntilComplete(orderId, options?)` | Espera el resultado de un pedido. |
+| `client.catalog.inferTrim(input, options?)` | Infiere las versiones del catálogo a partir de marca, modelo, año y texto libre. |
 | `client.catalog.listMarks(options?)` | Lista las marcas del catálogo. |
-| `client.catalog.listModels(...)`, `client.catalog.listYears(...)`, ... | Recorren el catálogo de modelos, años y versiones. |
+| `client.catalog.listModels(mark, options?)` | Lista los modelos de una marca. |
+| `client.catalog.listYears(mark, model, options?)` | Lista los años disponibles de un modelo. |
+| `client.catalog.listTrims(mark, model, year, options?)` | Lista las versiones disponibles para un año y modelo. |
 
 Todo método acepta `signal` (`AbortSignal`) y `timeoutMs` en sus opciones para cancelar o acotar la llamada.
+
+## Tasación a partir de texto libre
+
+Cuando no se conoce de antemano la versión normalizada del catálogo oficial, se puede solicitar la tasación directamente a partir de una descripción en texto libre mediante `createFromTrimText`:
+
+```ts
+import {
+  VehicleValuationClient,
+  TrimInferenceError,
+} from "@autotia/vehicle-valuation-sdk";
+
+const client = new VehicleValuationClient({
+  clientId: process.env.AUTOTIA_CLIENT_ID,
+  clientSecret: process.env.AUTOTIA_CLIENT_SECRET,
+  environment: "prod",
+});
+
+try {
+  const { order, inference, selectedVersion } =
+    await client.orders.createFromTrimText(
+      {
+        reportType: "general-price",
+        mark: "Toyota",
+        model: "Yaris",
+        year: 2020,
+        trimText: "1.5 GL sedan mecanico",
+        odometerKm: 50000,
+      },
+      {
+        minConfidence: 60, // Opcional: umbral mínimo de preferencia (0-100)
+      },
+    );
+
+  console.log(`Versión seleccionada: ${selectedVersion}`);
+  console.log(`Preferencia calculada: ${inference.versions[0]?.confidence}%`);
+
+  const completed = await client.orders.waitUntilComplete(order.orderId);
+  console.log(completed.result);
+} catch (error) {
+  if (error instanceof TrimInferenceError) {
+    // El texto no aportó evidencia, contradice el catálogo o no alcanzó minConfidence
+    console.warn(
+      `Inferencia no concluyente (${error.outcome}). Opciones disponibles:`,
+      error.versions,
+    );
+  } else {
+    throw error;
+  }
+}
+```
+
+### Semántica de `confidence`
+
+El campo `confidence` devuelto en cada versión inferida representa la **preferencia relativa entre los candidatos evaluados** y suma 100 sobre el conjunto completo de versiones analizadas; no es una probabilidad estadística de acierto. Si un solo candidato resulta compatible con el texto, su `confidence` es 100.
 
 ## Autenticación
 
@@ -88,7 +146,7 @@ Todos los errores heredan de `AutotiaError`, que expone `status`, `code`, `apiRe
 | `BadRequestError` | Solicitud inválida (400). | No |
 | `AuthenticationError` | Credenciales inválidas o token rechazado (401). | Una vez, renovando el token |
 | `PermissionDeniedError` | Cliente sin permiso o suspendido (403). | No |
-| `NotFoundError` | Vehículo, marca o modelo inexistente (404). | No |
+| `NotFoundError` | Vehículo, marca, modelo o año inexistente (404). | No |
 | `ConflictError` | La `Idempotency-Key` ya se usó con otra solicitud (409). | No |
 | `UnprocessableEntityError` | No hay datos suficientes para tasar (422). | No |
 | `QuotaExceededError` | Se agotó la cuota contratada (429). | No |
@@ -97,6 +155,7 @@ Todos los errores heredan de `AutotiaError`, que expone `status`, `code`, `apiRe
 | `AutotiaConnectionError` | Falla de red, DNS o conexión. | Sí, con espera exponencial |
 | `WaiterTimeoutError` | `waitUntilComplete` superó su plazo. | No |
 | `OrderFailedError` | El pedido terminó con error. | No |
+| `TrimInferenceError` | La inferencia de versión no aportó evidencia, contradice el catálogo o no alcanzó `minConfidence`. | No |
 
 ## Compatibilidad
 
