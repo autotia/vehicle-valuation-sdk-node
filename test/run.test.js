@@ -640,6 +640,50 @@ test("catalog: listModels, listYears, listTrims codifican parámetros en URL", a
   );
 });
 
+test("catalog: resolveVehicle, inferMark e inferModel usan sus rutas y cuerpos", async () => {
+  const requests = [];
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    requests.push({ path: url.pathname, body: JSON.parse(init.body) });
+    return jsonResponse(200, {});
+  };
+
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+  const resolutionRequest = {
+    mark: "Toyota",
+    year: 2020,
+    search: "Yaris 1.5 GL",
+  };
+  await client.catalog.resolveVehicle(resolutionRequest);
+  await client.catalog.inferMark({ text: "Toyota", limit: 3 });
+  await client.catalog.inferModel({
+    mark: "Toyota",
+    year: 2020,
+    text: "Yaris",
+  });
+
+  assert.deepEqual(requests, [
+    {
+      path: "/public-secure/shop-b2b/v1/vehicle-resolution",
+      body: resolutionRequest,
+    },
+    {
+      path: "/public-secure/shop-b2b/v1/mark-inference",
+      body: { text: "Toyota", limit: 3 },
+    },
+    {
+      path: "/public-secure/shop-b2b/v1/model-inference",
+      body: { mark: "Toyota", year: 2020, text: "Yaris" },
+    },
+  ]);
+});
+
 // -------------------------------------------------------------------------
 // Unit Tests: Reintentos y Excepciones
 // -------------------------------------------------------------------------

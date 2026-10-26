@@ -4,11 +4,13 @@ export type ReportType = "general-price" | string;
 
 export interface OrderRequest {
   reportType: "general-price" | string;
-  mark?: string | undefined;
+  mark: string;
   model?: string | undefined;
   year: number;
   version?: string | undefined;
-  odometerKm: number;
+  search?: string | undefined;
+  odometerKm?: number | undefined;
+  region?: string | undefined;
 }
 
 export interface OrderAcceptance {
@@ -17,6 +19,7 @@ export interface OrderAcceptance {
   status: "PENDING" | "RUNNING";
   pollAfterMs: number;
   saleId?: string | undefined;
+  resolution?: Resolution | undefined;
 }
 
 export interface OrderFailure {
@@ -103,6 +106,52 @@ export interface OrderStatus {
   saleId?: string | undefined;
   result?: OrderResult | undefined;
   failure?: OrderFailure | undefined;
+  resolution?: Resolution | undefined;
+}
+
+export type ResolutionCertainty = "EXACT" | "HIGH" | "LOW" | string;
+export type ResolutionFieldSource =
+  | "EXACT"
+  | "INFERRED"
+  | "NATIONAL"
+  | "PROVIDED"
+  | "USAGE_CURVE_YEAR_MEDIAN"
+  | "USAGE_CURVE_MODEL_MEDIAN"
+  | string;
+
+export interface ResolvedStringField {
+  value: string;
+  source: ResolutionFieldSource;
+}
+
+export interface ResolvedNumberField {
+  value: number;
+  source: ResolutionFieldSource;
+}
+
+export interface ResolutionCandidate {
+  model: string;
+  version: string;
+  confidence: number;
+  score: number;
+}
+
+export interface Resolution {
+  catalogVersion: string;
+  sourceCatalogVersion: string;
+  usageCurveVersion?: string | undefined;
+  referenceYear: number;
+  search?: string | undefined;
+  certainty: ResolutionCertainty;
+  topMargin: number;
+  fields: {
+    model: ResolvedStringField;
+    version: ResolvedStringField;
+    region: ResolvedStringField;
+    odometerKm: ResolvedNumberField;
+  };
+  selected: ResolutionCandidate;
+  alternatives: ResolutionCandidate[];
 }
 
 export interface CatalogRef {
@@ -157,13 +206,77 @@ export type TrimInferenceOutcome =
 export interface InferredTrim {
   version: string;
   confidence: number;
+  score: number;
 }
 
 export interface TrimInferenceResult {
   catalogVersion: string;
   outcome: TrimInferenceOutcome;
   totalCandidates: number;
+  topMargin: number;
   versions: InferredTrim[];
+}
+
+export interface VehicleResolutionRequest {
+  mark: string;
+  year: number;
+  model?: string | undefined;
+  version?: string | undefined;
+  search?: string | undefined;
+  odometerKm?: number | undefined;
+  region?: string | undefined;
+}
+
+export interface VehicleResolutionResult {
+  mark: string;
+  model: string;
+  year: number;
+  version: string;
+  region: string;
+  odometerKm: number;
+  resolution: Resolution;
+}
+
+export interface MarkInferenceRequest {
+  text: string;
+  limit?: number | undefined;
+}
+
+export interface MarkCandidate {
+  mark: string;
+  name: string;
+  confidence: number;
+  score: number;
+}
+
+export interface MarkInferenceResult {
+  catalogVersion: string;
+  outcome: "matched" | "no_match" | string;
+  totalCandidates: number;
+  topMargin: number;
+  marks: MarkCandidate[];
+}
+
+export interface ModelInferenceRequest {
+  mark: string;
+  year: number;
+  text: string;
+  limit?: number | undefined;
+}
+
+export interface ModelCandidate {
+  model: string;
+  name: string;
+  confidence: number;
+  score: number;
+}
+
+export interface ModelInferenceResult {
+  catalogVersion: string;
+  outcome: "matched" | "no_match" | string;
+  totalCandidates: number;
+  topMargin: number;
+  models: ModelCandidate[];
 }
 
 export interface OrderFromTrimTextRequest {
