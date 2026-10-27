@@ -18,26 +18,31 @@ import type {
 export class OrdersResource {
   readonly #config: RequestConfig;
   readonly #catalog: CatalogResource;
+  readonly #pollIntervals = new Map<string, number>();
 
   public constructor(config: RequestConfig) {
     this.#config = config;
     this.#catalog = new CatalogResource(config);
   }
 
-  public create(
+  public async create(
     input: OrderRequest,
     options: CallOptions = {},
   ): Promise<OrderAcceptance | OrderStatus> {
     const opts: CallOptions = options.idempotencyKey
       ? options
       : { ...options, idempotencyKey: crypto.randomUUID() };
-    return requestData<OrderAcceptance | OrderStatus>(
+    const response = await requestData<OrderAcceptance | OrderStatus>(
       this.#config,
       "POST",
       "/v1/orders",
       input,
       opts,
     );
+    if ("pollAfterMs" in response && typeof response.pollAfterMs === "number") {
+      this.#pollIntervals.set(response.orderId, response.pollAfterMs);
+    }
+    return response;
   }
 
   public async createFromTrimText(
@@ -114,7 +119,9 @@ export class OrdersResource {
       model: input.model,
       year: input.year,
       version: selectedVersion,
-      odometerKm: input.odometerKm,
+      ...(input.odometerKm !== undefined
+        ? { odometerKm: input.odometerKm }
+        : {}),
     };
 
     const order = await this.create(orderRequest, orderOptions);
@@ -126,14 +133,21 @@ export class OrdersResource {
     };
   }
 
-  public get(orderId: string, options: CallOptions = {}): Promise<OrderStatus> {
-    return requestData<OrderStatus>(
+  public async get(
+    orderId: string,
+    options: CallOptions = {},
+  ): Promise<OrderStatus> {
+    const status = await requestData<OrderStatus>(
       this.#config,
       "GET",
       `/v1/orders/${encodeURIComponent(orderId)}`,
       undefined,
       options,
     );
+    if (typeof status.pollAfterMs === "number") {
+      this.#pollIntervals.set(orderId, status.pollAfterMs);
+    }
+    return status;
   }
 
   public async waitUntilComplete(
@@ -142,7 +156,7 @@ export class OrdersResource {
   ): Promise<OrderStatus> {
     const timeout = options.timeoutMs ?? 120000;
     const started = Date.now();
-    let delay = options.pollAfterMs ?? 2000;
+    let delay = options.pollAfterMs ?? this.#pollIntervals.get(orderId) ?? 2000;
 
     while (Date.now() - started < timeout) {
       if (options.signal?.aborted) {
@@ -158,6 +172,7 @@ export class OrdersResource {
       });
 
       if (status.status === "FAILED") {
+        this.#pollIntervals.delete(orderId);
         const failure = status.failure ?? {
           code: "service_unavailable",
           description: "El pedido terminó sin resultado.",
@@ -168,6 +183,7 @@ export class OrdersResource {
       }
 
       if (status.status === "COMPLETED" && status.result) {
+        this.#pollIntervals.delete(orderId);
         return status;
       }
 
@@ -177,9 +193,10 @@ export class OrdersResource {
       );
       if (waitMs <= 0) break;
       await waitFor(waitMs, options.signal);
-      delay = options.pollAfterMs ?? delay;
+      delay = options.pollAfterMs ?? this.#pollIntervals.get(orderId) ?? delay;
     }
 
+    this.#pollIntervals.delete(orderId);
     throw new WaiterTimeoutError("La espera superó el plazo configurado.");
   }
 }

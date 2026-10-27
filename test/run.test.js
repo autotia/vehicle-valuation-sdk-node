@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { ClientCredentialsTokenProvider } from "../dist/auth/client-credentials.js";
+import { retryAfterDelay } from "../dist/core/retry.js";
 import {
   AutotiaConnectionError,
   AutotiaError,
@@ -159,6 +160,9 @@ for (const tc of fixtures.cases) {
         assert.equal(err.name, tc.expected.class);
         if (tc.expected.code !== undefined && tc.expected.code !== null) {
           assert.equal(err.code, tc.expected.code);
+        }
+        if (tc.expected.message !== undefined) {
+          assert.equal(err.message, tc.expected.message);
         }
         return true;
       });
@@ -640,6 +644,50 @@ test("catalog: listModels, listYears, listTrims codifican parámetros en URL", a
   );
 });
 
+test("catalog: resolveVehicle, inferMark e inferModel usan sus rutas y cuerpos", async () => {
+  const requests = [];
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    requests.push({ path: url.pathname, body: JSON.parse(init.body) });
+    return jsonResponse(200, {});
+  };
+
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+  const resolutionRequest = {
+    mark: "Toyota",
+    year: 2020,
+    search: "Yaris 1.5 GL",
+  };
+  await client.catalog.resolveVehicle(resolutionRequest);
+  await client.catalog.inferMark({ text: "Toyota", limit: 3 });
+  await client.catalog.inferModel({
+    mark: "Toyota",
+    year: 2020,
+    text: "Yaris",
+  });
+
+  assert.deepEqual(requests, [
+    {
+      path: "/public-secure/shop-b2b/v1/vehicle-resolution",
+      body: resolutionRequest,
+    },
+    {
+      path: "/public-secure/shop-b2b/v1/mark-inference",
+      body: { text: "Toyota", limit: 3 },
+    },
+    {
+      path: "/public-secure/shop-b2b/v1/model-inference",
+      body: { mark: "Toyota", year: 2020, text: "Yaris" },
+    },
+  ]);
+});
+
 // -------------------------------------------------------------------------
 // Unit Tests: Reintentos y Excepciones
 // -------------------------------------------------------------------------
@@ -673,6 +721,141 @@ test("reintentos: reintenta hasta maxRetries veces en errores transitorios (503)
 
   // 1 llamada original + 2 reintentos = 3 llamadas en total
   assert.equal(callCount, 3);
+});
+
+test("429 respeta Retry-After en segundos hasta el tope", async () => {
+  let calls = 0;
+  const delays = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    calls++;
+    if (calls === 1)
+      return new Response("", { status: 429, headers: { "Retry-After": "2" } });
+    return jsonResponse(200, { catalogVersion: "v1", marks: [] });
+  };
+  globalThis.setTimeout = (callback, ms, ...args) => {
+    delays.push(ms);
+    return originalSetTimeout(callback, 0, ...args);
+  };
+  try {
+    const client = new VehicleValuationClient({
+      environment: "dev",
+      clientId: "id",
+      clientSecret: "secret",
+      fetch: mockFetch,
+    });
+    await client.catalog.listMarks();
+    assert.equal(delays[0], 2000);
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test("Retry-After acepta segundos y fecha HTTP con tope; ignora valores inválidos", () => {
+  const now = Date.UTC(2026, 0, 1);
+  assert.equal(retryAfterDelay("2", now), 2000);
+  assert.equal(retryAfterDelay(new Date(now + 3000).toUTCString(), now), 3000);
+  assert.equal(retryAfterDelay("30", now), 10000);
+  assert.equal(retryAfterDelay("invalid", now), undefined);
+});
+
+test("reintento POST mantiene una clave idempotente estable", async () => {
+  const keys = [];
+  let calls = 0;
+  const mockFetch = async (input, init = {}) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    calls++;
+    keys.push(init.headers.get("Idempotency-Key"));
+    if (calls === 1)
+      return jsonResponse(503, null, { error: { code: "unavailable" } });
+    return jsonResponse(202, {
+      orderId: "ordb2b_same",
+      reportType: "general-price",
+      status: "PENDING",
+      pollAfterMs: 23,
+    });
+  };
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "id",
+    clientSecret: "secret",
+    fetch: mockFetch,
+  });
+  await client.orders.create(
+    {
+      reportType: "general-price",
+      mark: "Toyota",
+      model: "Yaris",
+      version: "1.5",
+      year: 2020,
+    },
+    { idempotencyKey: "stable-key" },
+  );
+  assert.deepEqual(keys, ["stable-key", "stable-key"]);
+});
+
+test("replay de pedido pendiente conserva el mismo orderId", async () => {
+  let calls = 0;
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    calls++;
+    return jsonResponse(202, {
+      orderId: "ordb2b_replayed",
+      reportType: "general-price",
+      status: "PENDING",
+      pollAfterMs: 7,
+    });
+  };
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "id",
+    clientSecret: "secret",
+    fetch: mockFetch,
+  });
+  const input = {
+    reportType: "general-price",
+    mark: "Toyota",
+    model: "Yaris",
+    version: "1.5",
+    year: 2020,
+  };
+  const first = await client.orders.create(input, {
+    idempotencyKey: "stable-key",
+  });
+  const replay = await client.orders.create(input, {
+    idempotencyKey: "stable-key",
+  });
+  assert.equal(first.orderId, replay.orderId);
+  assert.equal(calls, 2);
+});
+
+test("pedido FAILED reproducido conserva failure sin resolution", async () => {
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    return jsonResponse(200, {
+      orderId: "ordb2b_failed",
+      reportType: "general-price",
+      status: "FAILED",
+      failure: { code: "data_unavailable", description: "sin datos" },
+    });
+  };
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "id",
+    clientSecret: "secret",
+    fetch: mockFetch,
+  });
+  const status = await client.orders.get("ordb2b_failed");
+  assert.deepEqual(status.failure, {
+    code: "data_unavailable",
+    description: "sin datos",
+  });
+  assert.equal(status.resolution, undefined);
 });
 
 test("reintentos: no reintenta en errores 400, 403, 404, 409", async () => {
@@ -839,7 +1022,6 @@ test("orders.createFromTrimText: matched crea pedido con versions[0].version", a
     model: "Yaris",
     year: 2020,
     trimText: "1.5 GL sedan mecanico",
-    odometerKm: 45000,
   });
 
   assert.equal(inferenceBody.text, "1.5 GL sedan mecanico");
@@ -847,7 +1029,7 @@ test("orders.createFromTrimText: matched crea pedido con versions[0].version", a
   assert.equal(orderBody.mark, "Toyota");
   assert.equal(orderBody.model, "Yaris");
   assert.equal(orderBody.year, 2020);
-  assert.equal(orderBody.odometerKm, 45000);
+  assert.equal(Object.hasOwn(orderBody, "odometerKm"), false);
   assert.equal(res.selectedVersion, "1.5 GL MT");
   assert.equal(res.order.orderId, "ordb2b_from_trim_1");
   assert.equal(res.inference.outcome, "matched");

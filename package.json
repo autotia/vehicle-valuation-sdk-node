@@ -1,6 +1,6 @@
 {
   "name": "@autotia/vehicle-valuation-sdk",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "SDK oficial de Node.js y TypeScript para la API de tasación vehicular de Autotia",
   "repository": {
     "type": "git",
