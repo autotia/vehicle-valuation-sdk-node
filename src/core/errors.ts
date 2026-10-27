@@ -6,6 +6,7 @@ export interface ErrorDetails {
   apiRequestId?: string | undefined;
   executionId?: string | undefined;
   cause?: unknown;
+  retryAfter?: string | undefined;
 }
 
 export class AutotiaError extends Error {
@@ -13,6 +14,7 @@ export class AutotiaError extends Error {
   public code?: string | undefined;
   public apiRequestId?: string | undefined;
   public executionId?: string | undefined;
+  public retryAfter?: string | undefined;
 
   public constructor(message: string, details: ErrorDetails = {}) {
     super(
@@ -24,6 +26,7 @@ export class AutotiaError extends Error {
     this.code = details.code;
     this.apiRequestId = details.apiRequestId;
     this.executionId = details.executionId;
+    this.retryAfter = details.retryAfter;
   }
 }
 
@@ -60,6 +63,7 @@ export function makeHttpError(
   status: number,
   envelope?: unknown,
   bodyText?: string,
+  headers?: Headers,
 ): AutotiaError {
   let code: string | undefined;
   let description: string | undefined;
@@ -79,14 +83,17 @@ export function makeHttpError(
 
   const message =
     description ??
-    (bodyText && bodyText.trim().length > 0
-      ? bodyText.trim()
-      : "La API devolvió un error HTTP.");
+    (status === 429
+      ? "Límite de solicitudes alcanzado."
+      : bodyText && bodyText.trim().length > 0
+        ? bodyText.trim()
+        : "La API devolvió un error HTTP.");
   const details: ErrorDetails = {
     status,
     code,
     apiRequestId,
     executionId,
+    retryAfter: headers?.get("retry-after") ?? undefined,
   };
 
   if (status === 400) return new BadRequestError(message, details);

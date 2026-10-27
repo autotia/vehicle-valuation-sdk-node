@@ -20,4 +20,5 @@ export interface Envelope<T> {
   error?:
     | { code?: string | undefined; description?: string | undefined }
     | undefined;
+  [key: string]: unknown;
 }

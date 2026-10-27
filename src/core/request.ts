@@ -5,7 +5,12 @@ import {
   AutotiaError,
   makeHttpError,
 } from "./errors.js";
-import { getRetrySettings, isTransient, retryDelay } from "./retry.js";
+import {
+  getRetrySettings,
+  isTransient,
+  retryAfterDelay,
+  retryDelay,
+} from "./retry.js";
 import type {
   CallOptions,
   Envelope,
@@ -94,7 +99,12 @@ export async function requestData<T>(
       }
 
       if (!response.ok) {
-        throw makeHttpError(response.status, envelope, responseText);
+        throw makeHttpError(
+          response.status,
+          envelope,
+          responseText,
+          response.headers,
+        );
       }
 
       if (
@@ -107,7 +117,12 @@ export async function requestData<T>(
       }
 
       if (envelope.error) {
-        throw makeHttpError(response.status, envelope, responseText);
+        throw makeHttpError(
+          response.status,
+          envelope,
+          responseText,
+          response.headers,
+        );
       }
 
       return envelope.data as T;
@@ -128,11 +143,13 @@ export async function requestData<T>(
         throw sdkError;
       }
 
-      const delay = retryDelay(
-        retries,
-        retrySettings.baseDelayMs,
-        retrySettings.maxDelayMs,
-      );
+      const delay =
+        retryAfterDelay(sdkError.retryAfter) ??
+        retryDelay(
+          retries,
+          retrySettings.baseDelayMs,
+          retrySettings.maxDelayMs,
+        );
       retries += 1;
       const remainingAfterError = timeout - (Date.now() - started);
       if (remainingAfterError <= delay) {
