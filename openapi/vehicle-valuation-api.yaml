@@ -746,6 +746,62 @@ components:
           $ref: '#/components/schemas/Freshness'
         methodology:
           $ref: '#/components/schemas/Methodology'
+        comparables:
+          $ref: '#/components/schemas/OrderComparables'
+    OrderComparables:
+      type: object
+      additionalProperties: true
+      required: [availability, items]
+      properties:
+        availability:
+          type: string
+          enum: [AVAILABLE, INSUFFICIENT]
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderComparable'
+    OrderComparable:
+      type: object
+      additionalProperties: true
+      required: [url, priceCLP, year, odometerKm, version, region, sellerType, firstSeenAt, lastSeenAt, diff]
+      properties:
+        url:
+          type: string
+        priceCLP:
+          type: integer
+          format: int64
+        year:
+          type: integer
+        odometerKm:
+          type: integer
+        version:
+          type: string
+        region:
+          type: string
+        sellerType:
+          type: string
+          enum: [dealer, private]
+        firstSeenAt:
+          type: string
+          format: date-time
+        lastSeenAt:
+          type: string
+          format: date-time
+        diff:
+          $ref: '#/components/schemas/OrderComparableDiff'
+    OrderComparableDiff:
+      type: object
+      additionalProperties: true
+      required: [yearDelta, odometerDeltaKm, sameVersion, sameRegion]
+      properties:
+        yearDelta:
+          type: integer
+        odometerDeltaKm:
+          type: integer
+        sameVersion:
+          type: boolean
+        sameRegion:
+          type: boolean
     ResultVehicle:
       type: object
       additionalProperties: true

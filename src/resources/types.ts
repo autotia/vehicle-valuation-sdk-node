@@ -101,6 +101,35 @@ export interface OrderResultData {
   grossMarginEstimate: OrderGrossMarginEstimate;
   freshness: OrderFreshness;
   methodology: OrderMethodology;
+  comparables?: OrderComparables | undefined;
+  [key: string]: unknown;
+}
+
+export interface OrderComparableDiff {
+  yearDelta: number;
+  odometerDeltaKm: number;
+  sameVersion: boolean;
+  sameRegion: boolean;
+  [key: string]: unknown;
+}
+
+export interface OrderComparable {
+  url: string;
+  priceCLP: number;
+  year: number;
+  odometerKm: number;
+  version: string;
+  region: string;
+  sellerType: "dealer" | "private" | string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  diff: OrderComparableDiff;
+  [key: string]: unknown;
+}
+
+export interface OrderComparables {
+  availability: "AVAILABLE" | "INSUFFICIENT" | string;
+  items: OrderComparable[];
   [key: string]: unknown;
 }
 

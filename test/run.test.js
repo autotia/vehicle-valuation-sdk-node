@@ -525,6 +525,118 @@ test("orders.get: consulta por orderId y deserializa orderId, reportType y saleI
   assert.equal(res.status, "COMPLETED");
 });
 
+test("orders.get: deserializa comparables cuando están presentes en result.data", async () => {
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    return jsonResponse(200, {
+      orderId: "ordb2b_01j7x000000000000000000002",
+      reportType: "general-price",
+      status: "COMPLETED",
+      result: {
+        schemaVersion: "general-price-result-v1",
+        data: {
+          vehicle: {
+            mark: "Peugeot",
+            model: "208",
+            year: 2023,
+            version: "1.2 PureTech",
+            versionResolution: "EXACT",
+            versionApplied: true,
+          },
+          marketContext: {
+            region: "Metropolitana de Santiago",
+            purchaseSellerType: "dealer",
+            saleSellerType: "dealer",
+            odometerKm: 45000,
+          },
+          purchase: {
+            sellerType: "dealer",
+            qualityScore: 90,
+            options: [],
+          },
+          sale: {
+            sellerType: "dealer",
+            qualityScore: 90,
+            options: [],
+          },
+          grossMarginEstimate: {
+            qualityScore: 90,
+            disclaimer: "ok",
+            maxMargin: {
+              purchasePercentile: 25,
+              salePercentile: 75,
+              purchasePriceCLP: 9000000,
+              salePriceCLP: 11000000,
+              marginCLP: 2000000,
+              marginPercent: 0.22,
+            },
+            minMargin: {
+              purchasePercentile: 50,
+              salePercentile: 50,
+              purchasePriceCLP: 10000000,
+              salePriceCLP: 10000000,
+              marginCLP: 0,
+              marginPercent: 0.0,
+            },
+          },
+          freshness: {
+            lastValidLogicalDay: "2026-10-31",
+            ageDays: 0,
+            status: "FRESH",
+          },
+          methodology: {
+            qualityVersion: "1.0",
+            smoothingVersion: "1.0",
+            algorithmVersion: "quantile-regression-2.0.0",
+          },
+          comparables: {
+            availability: "AVAILABLE",
+            items: [
+              {
+                url: "https://example.com/auto/1",
+                priceCLP: 9990000,
+                year: 2023,
+                odometerKm: 52000,
+                version: "1.2 PureTech",
+                region: "Metropolitana de Santiago",
+                sellerType: "dealer",
+                firstSeenAt: "2026-10-12T10:00:00Z",
+                lastSeenAt: "2026-10-28T18:00:00Z",
+                diff: {
+                  yearDelta: 0,
+                  odometerDeltaKm: 7000,
+                  sameVersion: true,
+                  sameRegion: true,
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+  };
+
+  const client = new VehicleValuationClient({
+    environment: "dev",
+    clientId: "id",
+    clientSecret: "secret",
+    fetch: mockFetch,
+  });
+
+  const res = await client.orders.get("ordb2b_01j7x000000000000000000002");
+  assert.equal(res.status, "COMPLETED");
+  const data = res.result?.data;
+  assert.ok(data && typeof data === "object");
+  assert.equal(data.comparables?.availability, "AVAILABLE");
+  assert.equal(data.comparables?.items.length, 1);
+  const first = data.comparables?.items[0];
+  assert.equal(first?.priceCLP, 9990000);
+  assert.equal(first?.sellerType, "dealer");
+  assert.equal(first?.diff.odometerDeltaKm, 7000);
+  assert.equal(first?.diff.sameVersion, true);
+});
+
 test("orders.waitUntilComplete: cancelable con AbortSignal", async () => {
   const mockFetch = async (input) => {
     const url = new URL(typeof input === "string" ? input : input.url);
