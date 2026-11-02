@@ -763,7 +763,7 @@ components:
     OrderComparable:
       type: object
       additionalProperties: true
-      required: [url, priceCLP, year, odometerKm, version, region, sellerType, firstSeenAt, lastSeenAt, diff]
+      required: [url, priceCLP, year, odometerKm, version, region, sellerType, firstSeenAt, lastSeenAt, distant, diff]
       properties:
         url:
           type: string
@@ -787,6 +787,9 @@ components:
         lastSeenAt:
           type: string
           format: date-time
+        distant:
+          type: boolean
+          description: true when the listing was added to reach the minimum of 3 comparables even though it is outside the model's similarity tolerance; it may differ substantially in year, mileage or version.
         diff:
           $ref: '#/components/schemas/OrderComparableDiff'
     OrderComparableDiff:

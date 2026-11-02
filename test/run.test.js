@@ -603,11 +603,30 @@ test("orders.get: deserializa comparables cuando están presentes en result.data
                 sellerType: "dealer",
                 firstSeenAt: "2026-10-12T10:00:00Z",
                 lastSeenAt: "2026-10-28T18:00:00Z",
+                distant: false,
                 diff: {
                   yearDelta: 0,
                   odometerDeltaKm: 7000,
                   sameVersion: true,
                   sameRegion: true,
+                },
+              },
+              {
+                url: "https://example.com/auto/2",
+                priceCLP: 10500000,
+                year: 2022,
+                odometerKm: 65000,
+                version: "1.2 PureTech",
+                region: "Valparaíso",
+                sellerType: "private",
+                firstSeenAt: "2026-10-15T10:00:00Z",
+                lastSeenAt: "2026-10-29T18:00:00Z",
+                distant: true,
+                diff: {
+                  yearDelta: 1,
+                  odometerDeltaKm: 20000,
+                  sameVersion: true,
+                  sameRegion: false,
                 },
               },
             ],
@@ -629,12 +648,19 @@ test("orders.get: deserializa comparables cuando están presentes en result.data
   const data = res.result?.data;
   assert.ok(data && typeof data === "object");
   assert.equal(data.comparables?.availability, "AVAILABLE");
-  assert.equal(data.comparables?.items.length, 1);
+  assert.equal(data.comparables?.items.length, 2);
   const first = data.comparables?.items[0];
   assert.equal(first?.priceCLP, 9990000);
   assert.equal(first?.sellerType, "dealer");
+  assert.equal(first?.distant, false);
   assert.equal(first?.diff.odometerDeltaKm, 7000);
   assert.equal(first?.diff.sameVersion, true);
+  const second = data.comparables?.items[1];
+  assert.equal(second?.priceCLP, 10500000);
+  assert.equal(second?.sellerType, "private");
+  assert.equal(second?.distant, true);
+  assert.equal(second?.diff.odometerDeltaKm, 20000);
+  assert.equal(second?.diff.sameRegion, false);
 });
 
 test("orders.waitUntilComplete: cancelable con AbortSignal", async () => {

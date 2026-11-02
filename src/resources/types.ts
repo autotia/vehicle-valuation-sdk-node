@@ -123,6 +123,7 @@ export interface OrderComparable {
   sellerType: "dealer" | "private" | string;
   firstSeenAt: string;
   lastSeenAt: string;
+  distant: boolean;
   diff: OrderComparableDiff;
   [key: string]: unknown;
 }
