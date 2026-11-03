@@ -534,8 +534,13 @@ test("orders.get: deserializa comparables cuando están presentes en result.data
       reportType: "general-price",
       status: "COMPLETED",
       result: {
-        schemaVersion: "general-price-result-v1",
+        schemaVersion: "report-result-v2",
         data: {
+          localization: {
+            currency: "CLP",
+            timeZone: "America/Santiago",
+            locale: "es-CL",
+          },
           vehicle: {
             mark: "Peugeot",
             model: "208",
@@ -544,92 +549,68 @@ test("orders.get: deserializa comparables cuando están presentes en result.data
             versionResolution: "EXACT",
             versionApplied: true,
           },
-          marketContext: {
-            region: "Metropolitana de Santiago",
-            purchaseSellerType: "dealer",
-            saleSellerType: "dealer",
-            odometerKm: 45000,
-          },
-          purchase: {
-            sellerType: "dealer",
-            qualityScore: 90,
-            options: [],
-          },
-          sale: {
-            sellerType: "dealer",
-            qualityScore: 90,
-            options: [],
-          },
-          grossMarginEstimate: {
-            qualityScore: 90,
-            disclaimer: "ok",
-            maxMargin: {
-              purchasePercentile: 25,
-              salePercentile: 75,
-              purchasePriceCLP: 9000000,
-              salePriceCLP: 11000000,
-              marginCLP: 2000000,
-              marginPercent: 0.22,
-            },
-            minMargin: {
-              purchasePercentile: 50,
-              salePercentile: 50,
-              purchasePriceCLP: 10000000,
-              salePriceCLP: 10000000,
-              marginCLP: 0,
-              marginPercent: 0.0,
-            },
-          },
-          freshness: {
-            lastValidLogicalDay: "2026-10-31",
-            ageDays: 0,
-            status: "FRESH",
-          },
-          methodology: {
-            qualityVersion: "1.0",
-            smoothingVersion: "1.0",
-            algorithmVersion: "quantile-regression-2.0.0",
-          },
-          comparables: {
-            availability: "AVAILABLE",
-            items: [
-              {
-                url: "https://example.com/auto/1",
-                priceCLP: 9990000,
-                year: 2023,
-                odometerKm: 52000,
-                version: "1.2 PureTech",
-                region: "Metropolitana de Santiago",
-                sellerType: "dealer",
-                firstSeenAt: "2026-10-12T10:00:00Z",
-                lastSeenAt: "2026-10-28T18:00:00Z",
-                distant: false,
-                diff: {
-                  yearDelta: 0,
-                  odometerDeltaKm: 7000,
-                  sameVersion: true,
-                  sameRegion: true,
+          sections: {
+            comparables: {
+              schema: "comparables-v1",
+              status: "AVAILABLE",
+              data: {
+                items: [
+                  {
+                    portal: "chileautos",
+                    publicationId: "pub-1",
+                    url: "https://example.com/auto/1",
+                    price: 9990000,
+                    year: 2023,
+                    odometer: 52000,
+                    version: "1.2 PureTech",
+                    canonicalVersionKey: "1.2 PureTech",
+                    region: "13",
+                    sellerType: "dealer",
+                    firstSeenAt: "2026-10-12T10:00:00Z",
+                    lastSeenAt: "2026-10-20T10:00:00Z",
+                    distant: false,
+                    diff: {
+                      yearDelta: 0,
+                      odometerDelta: -2000,
+                      sameVersion: true,
+                      sameRegion: true,
+                    },
+                  },
+                  {
+                    portal: "chileautos",
+                    publicationId: "pub-2",
+                    url: "https://example.com/auto/2",
+                    price: 10500000,
+                    year: 2022,
+                    odometer: 65000,
+                    version: "1.2 PureTech",
+                    canonicalVersionKey: "1.2 PureTech",
+                    region: "05",
+                    sellerType: "private",
+                    firstSeenAt: "2026-10-15T10:00:00Z",
+                    lastSeenAt: "2026-10-25T10:00:00Z",
+                    distant: true,
+                    diff: {
+                      yearDelta: -1,
+                      odometerDelta: 11000,
+                      sameVersion: true,
+                      sameRegion: false,
+                    },
+                  },
+                ],
+                model: {
+                  algorithmVersion: "2026.1",
+                  logicalDay: "2026-11-01",
+                  scope: "regional",
+                },
+                selection: {
+                  candidates: 10,
+                  withinTolerance: 5,
+                  maxResults: 10,
+                  kMin: 2,
                 },
               },
-              {
-                url: "https://example.com/auto/2",
-                priceCLP: 10500000,
-                year: 2022,
-                odometerKm: 65000,
-                version: "1.2 PureTech",
-                region: "Valparaíso",
-                sellerType: "private",
-                firstSeenAt: "2026-10-15T10:00:00Z",
-                lastSeenAt: "2026-10-29T18:00:00Z",
-                distant: true,
-                diff: {
-                  yearDelta: 1,
-                  odometerDeltaKm: 20000,
-                  sameVersion: true,
-                  sameRegion: false,
-                },
-              },
-            ],
+            },
           },
         },
       },
@@ -647,20 +628,21 @@ test("orders.get: deserializa comparables cuando están presentes en result.data
   assert.equal(res.status, "COMPLETED");
   const data = res.result?.data;
   assert.ok(data && typeof data === "object");
-  assert.equal(data.comparables?.availability, "AVAILABLE");
-  assert.equal(data.comparables?.items.length, 2);
-  const first = data.comparables?.items[0];
-  assert.equal(first?.priceCLP, 9990000);
-  assert.equal(first?.sellerType, "dealer");
+  const comparables = data.sections?.comparables;
+  assert.ok(comparables);
+  assert.equal(comparables.status, "AVAILABLE");
+  assert.equal(comparables.schema, "comparables-v1");
+  assert.equal(comparables.data?.items.length, 2);
+  const first = comparables.data?.items[0];
+  assert.equal(first?.price, 9990000);
+  assert.equal(first?.odometer, 52000);
+  assert.equal(first?.region, "13");
   assert.equal(first?.distant, false);
-  assert.equal(first?.diff.odometerDeltaKm, 7000);
-  assert.equal(first?.diff.sameVersion, true);
-  const second = data.comparables?.items[1];
-  assert.equal(second?.priceCLP, 10500000);
-  assert.equal(second?.sellerType, "private");
+  const second = comparables.data?.items[1];
+  assert.equal(second?.price, 10500000);
+  assert.equal(second?.odometer, 65000);
+  assert.equal(second?.region, "05");
   assert.equal(second?.distant, true);
-  assert.equal(second?.diff.odometerDeltaKm, 20000);
-  assert.equal(second?.diff.sameRegion, false);
 });
 
 test("orders.waitUntilComplete: cancelable con AbortSignal", async () => {
@@ -1468,4 +1450,67 @@ test("catalog.inferTrim: mapeo de errores HTTP 400 y 404 year_not_found", async 
       return true;
     },
   );
+});
+
+test("dist: archivos .d.ts de la API pública contienen documentación JSDoc", () => {
+  const distDir = path.resolve(import.meta.dirname, "../dist");
+  const publicDtsFiles = [
+    "index.d.ts",
+    "resources/orders.d.ts",
+    "resources/catalog.d.ts",
+    "resources/types.d.ts",
+    "resources/sections/price.d.ts",
+    "resources/sections/comparables.d.ts",
+    "resources/sections/usage.d.ts",
+    "resources/sections/listing-analysis.d.ts",
+    "resources/sections/price-history.d.ts",
+  ];
+  for (const relPath of publicDtsFiles) {
+    const fullPath = path.join(distDir, relPath);
+    assert.ok(
+      fs.existsSync(fullPath),
+      `El archivo ${relPath} debe existir en dist`,
+    );
+    const content = fs.readFileSync(fullPath, "utf8");
+    assert.ok(
+      content.includes("/**"),
+      `El archivo ${relPath} debe contener comentarios JSDoc (/**)`,
+    );
+  }
+});
+
+test("readme: ejemplos de código son válidos contra fixtures.json", () => {
+  const readmePath = path.resolve(import.meta.dirname, "../README.md");
+  const readme = fs.readFileSync(readmePath, "utf8");
+
+  // Los ejemplos de código del README no deben contener referencias al esquema obsoleto de v1
+  const codeBlocks = (readme.match(/```(?:ts|js)[\s\S]*?```/g) || []).join(
+    "\n",
+  );
+  assert.equal(
+    codeBlocks.includes("general-price-result-v1"),
+    false,
+    "Los ejemplos de código del README no deben referenciar general-price-result-v1",
+  );
+
+  // El README debe documentar y usar la arquitectura modular report-result-v2
+  assert.ok(
+    readme.includes("report-result-v2"),
+    "README debe mencionar schemaVersion report-result-v2",
+  );
+  assert.ok(
+    readme.includes("sections.price"),
+    "README debe mostrar acceso a sections.price",
+  );
+
+  // Coherencia con fixture waiter-202-then-200
+  const fixture = fixtures.cases.find((c) => c.id === "waiter-202-then-200");
+  assert.ok(fixture, "Fixture waiter-202-then-200 debe existir");
+  const result = fixture.expected.value.result;
+  assert.equal(result.schemaVersion, "report-result-v2");
+  assert.ok(result.data.sections.price.data.qualityScore > 0);
+  assert.ok(result.data.sections.price.data.purchase.minPrice > 0);
+  assert.ok(result.data.sections.price.data.grossMarginEstimate.avgGrossMargin > 0);
+  assert.ok(result.data.sections.comparables.data.items.length > 0);
+  assert.ok(result.data.sections.usage.data.series.length > 0);
 });

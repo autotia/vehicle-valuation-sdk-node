@@ -32,16 +32,29 @@ export type {
 export type { OrdersResource } from "./resources/orders.js";
 export type { CatalogResource } from "./resources/catalog.js";
 
+/**
+ * Opciones de configuración para inicializar el cliente VehicleValuationClient.
+ */
 export interface VehicleValuationClientOptions {
+  /** Entorno predefinido ('dev' para desarrollo, 'prod' para producción). */
   environment?: "dev" | "prod" | undefined;
+  /** URL base personalizada de la API B2B (requiere tokenUrl si no se usa environment). */
   baseUrl?: string | undefined;
+  /** URL del endpoint OAuth2 token (requiere baseUrl si no se usa environment). */
   tokenUrl?: string | undefined;
+  /** Identificador de cliente OAuth2 (clientId). */
   clientId?: string | undefined;
+  /** Secreto de cliente OAuth2 (clientSecret). Solo debe utilizarse en entornos seguros de backend. */
   clientSecret?: string | undefined;
+  /** Scopes opcionales a solicitar en la emisión del token. */
   scopes?: string[] | undefined;
+  /** Proveedor personalizado de token OAuth2 si la aplicación gestiona la autenticación de forma delegada. */
   tokenProvider?: TokenProvider | undefined;
+  /** Tiempo de espera máximo por intento en milisegundos (por defecto 30000 ms). */
   timeoutMs?: number | undefined;
+  /** Cantidad máxima de reintentos automáticos ante errores transitorios de red o 503 (por defecto 2). */
   maxRetries?: number | undefined;
+  /** Función fetch inyectable para entornos con proxies, pruebas o instrumentación personalizada. */
   fetch?: FetchFunction | undefined;
 }
 
@@ -59,18 +72,44 @@ const ENVIRONMENTS = {
   },
 } as const;
 
+/**
+ * Cliente oficial para la API B2B de tasación vehicular de Autotia (Chile).
+ */
 export class VehicleValuationClient {
   readonly #orders: OrdersResource;
   readonly #catalog: CatalogResource;
 
+  /**
+   * Recurso para crear pedidos de tasación, consultar su estado y esperar su resultado mediante sondeo.
+   */
   public get orders(): OrdersResource {
     return this.#orders;
   }
 
+  /**
+   * Recurso para consultar marcas, modelos y versiones del catálogo vehicular e inferir especificaciones.
+   */
   public get catalog(): CatalogResource {
     return this.#catalog;
   }
 
+  /**
+   * Inicializa una nueva instancia del cliente de tasación vehicular.
+   *
+   * @param options Opciones de configuración del cliente (ambiente, credenciales OAuth2, timeouts).
+   * @throws {TypeError} Si no se entrega un ambiente válido o faltan las credenciales requeridas.
+   *
+   * @example
+   * ```ts
+   * import { VehicleValuationClient } from "@autotia/vehicle-valuation-sdk";
+   *
+   * const client = new VehicleValuationClient({
+   *   environment: "prod",
+   *   clientId: "mi-client-id",
+   *   clientSecret: "mi-client-secret",
+   * });
+   * ```
+   */
   public constructor(options: VehicleValuationClientOptions) {
     if (
       !options ||

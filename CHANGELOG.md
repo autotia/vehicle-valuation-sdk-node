@@ -1,14 +1,20 @@
 # Registro de cambios
 
-## Próxima versión (propuesta: 3.0.0, no publicada)
+## [3.0.0] - Unreleased
 
-- Alinear el contrato OpenAPI, la idempotencia y las respuestas terminales con la API B2B vigente.
-- Incorporar tipos y esquemas opcionales de autos comparables (`comparables`) en el resultado de pedidos de tasación (`OrderResultData`), incluyendo diferencias de año, kilometraje, versión y región.
-- Incorporar campo booleano `distant` en cada publicación comparable (`OrderComparable.distant`), que indica si fue agregada para alcanzar el mínimo de 3 comparables fuera de la tolerancia del modelo.
-- Restringir los tipos de solicitud a `general-price` y a los modos de identificación exacto o flexible; `odometerKm` queda opcional en `createFromTrimText`.
-- Tolerar campos adicionales en los objetos de respuesta.
-- Respetar `pollAfterMs` y `Retry-After` (hasta 10 s), con backoff exponencial con jitter cuando `Retry-After` no esté disponible.
-- Unificar el mensaje del error 429 sin envelope y ampliar los casos de conformidad.
+- Migración al resultado modular `report-result-v2`: el resultado de tasación se estructura en secciones independientes bajo `order.result.data.sections`.
+- Secciones modulares tipadas:
+  - `price` (`price-v2`): estadísticas detalladas de precios de transacción y publicación en CLP, percentiles, tamaño muestral, confianza y fecha de cálculo.
+  - `comparables` (`comparables-v1`): publicaciones comparables directas y segregación de comparables lejanos (`distant`), con precios en CLP, kilometraje, región y similitud.
+  - `usage` (`usage-v1`): kilometraje mediano anual y curva de uso proyectada por año.
+  - `listingAnalysis` (`listing-analysis-v2`): métricas de absorción de mercado, días en vitrina e índice de demanda.
+  - `priceHistory` (`price-history-v1`): tendencias y series históricas de precios.
+- Compatibilidad hacia adelante: firma de índice abierta en `ReportSections` (`[key: string]: ReportSection | undefined`) para soportar secciones futuras sin requerir actualización del SDK.
+- Ciclo de vida por sección con estados explícitos (`COMPLETED`, `RUNNING`, `FAILED`, `UNAVAILABLE`) y omisión de `data` cuando la sección no está completada.
+- Documentación JSDoc exhaustiva en todas las clases, métodos, interfaces y propiedades exportadas (`@param`, `@returns`, `@throws`, `@example`).
+- Paridad total con el SDK CommonJS para Node.js 11.15 a 22.11 (`@autotia/vehicle-valuation-sdk-legacy`).
+- Remoción de esquemas y tipos monolíticos obsoletos de la versión 1.x (`general-price-result-v1`).
+- Actualización de especificación OpenAPI y suite de pruebas de conformidad con casos de secciones modulares y compatibilidad de esquemas futuros.
 
 ## [2.0.0] - Unreleased
 
