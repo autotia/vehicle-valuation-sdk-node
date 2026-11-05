@@ -1,6 +1,6 @@
 {
   "name": "@autotia/vehicle-valuation-sdk",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "SDK oficial de Node.js y TypeScript para la API de tasación vehicular de Autotia",
   "repository": {
     "type": "git",
@@ -28,7 +28,8 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build && node --test test/run.test.js",
+    "test:types": "tsc -p test/types/tsconfig.json",
+    "test": "npm run build && npm run test:types && node --test test/run.test.js",
     "lint": "biome check src test scripts",
     "check:package": "publint && attw --pack . --profile esm-only",
     "smoke": "node scripts/smoke.js"
