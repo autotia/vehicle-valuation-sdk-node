@@ -1164,6 +1164,51 @@ test("catalog.inferTrim: envía cuerpo JSON correcto y recibe resultado", async 
   assert.equal(res.versions[0]?.confidence, 100);
 });
 
+test("catalog.inferTrim: deserializa versionConfidence y versionBasis cuando están presentes", async () => {
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) {
+      return tokenResponse();
+    }
+    if (url.pathname.includes("/v1/version-inference")) {
+      return jsonResponse(200, {
+        catalogVersion: "cat-v2",
+        outcome: "matched",
+        totalCandidates: 4,
+        topMargin: 0,
+        versionConfidence: "MEDIUM",
+        versionBasis: "LOWEST_PRICE",
+        versions: [
+          {
+            version: "1.2 PURETECH ACTIVE PACK 75 4X2 MT 5P",
+            confidence: 25,
+            score: 75,
+          },
+        ],
+      });
+    }
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+
+  const res = await client.catalog.inferTrim({
+    mark: "Peugeot",
+    model: "208",
+    year: 2024,
+    text: "208 PURETECH 4X2 1.2",
+  });
+
+  assert.equal(res.versionConfidence, "MEDIUM");
+  assert.equal(res.versionBasis, "LOWEST_PRICE");
+});
+
 test("orders.createFromTrimText: matched crea pedido con versions[0].version", async () => {
   let inferenceBody = null;
   let orderBody = null;
