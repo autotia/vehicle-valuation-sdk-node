@@ -1062,6 +1062,8 @@ test("catalog.inferTrim: envía cuerpo JSON correcto y recibe resultado", async 
       return jsonResponse(200, {
         catalogVersion: "cat-test-1",
         outcome: "matched",
+        versionConfidence: "MEDIUM",
+        versionBasis: "LOWEST_PRICE",
         totalCandidates: 1,
         versions: [{ version: "3.6 L RS MT", confidence: 100 }],
       });
@@ -1109,15 +1111,14 @@ test("catalog.inferTrim: deserializa versionConfidence y versionBasis cuando est
       return jsonResponse(200, {
         catalogVersion: "cat-v2",
         outcome: "matched",
+
         totalCandidates: 4,
-        topMargin: 0,
         versionConfidence: "MEDIUM",
         versionBasis: "LOWEST_PRICE",
         versions: [
           {
             version: "1.2 PURETECH ACTIVE PACK 75 4X2 MT 5P",
             confidence: 25,
-            score: 75,
           },
         ],
       });
@@ -1159,10 +1160,11 @@ test("catalog.inferTrim: acepta los valores EXACT y MOST_COMMON", async () => {
       return jsonResponse(200, {
         catalogVersion: "cat-v2",
         outcome: "matched",
+        versionConfidence: "MEDIUM",
+        versionBasis: "LOWEST_PRICE",
         totalCandidates: 1,
-        topMargin: 0,
         ...expected,
-        versions: [{ version: "1.2 PURETECH", confidence: 100, score: 90 }],
+        versions: [{ version: "1.2 PURETECH", confidence: 100 }],
       });
     };
     const client = new VehicleValuationClient({
@@ -1197,6 +1199,8 @@ test("orders.createFromTrimText: matched crea pedido con versions[0].version", a
       return jsonResponse(200, {
         catalogVersion: "cat-v1",
         outcome: "matched",
+        versionConfidence: "MEDIUM",
+        versionBasis: "LOWEST_PRICE",
         totalCandidates: 2,
         versions: [
           { version: "1.5 GL MT", confidence: 85 },
@@ -1247,30 +1251,41 @@ test("orders.createFromTrimText: matched crea pedido con versions[0].version", a
   assert.equal(res.inference.outcome, "matched");
 });
 
-test("orders.createFromTrimText: no_evidence lanza TrimInferenceError sin llamar a orders.create", async () => {
+test("orders.createFromTrimText: Peugeot 208 MEDIUM pasa con el valor por defecto", async () => {
   let orderCalls = 0;
-
-  const mockFetch = async (input) => {
+  let orderBody = null;
+  const mockFetch = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.pathname.includes("/oauth2/token")) return tokenResponse();
     if (url.pathname.includes("/v1/version-inference")) {
       return jsonResponse(200, {
-        catalogVersion: "cat-v1",
-        outcome: "no_evidence",
-        totalCandidates: 2,
+        catalogVersion: "cat-v2",
+        outcome: "matched",
+
+        totalCandidates: 9,
+        versionConfidence: "MEDIUM",
+        versionBasis: "LOWEST_PRICE",
         versions: [
-          { version: "1.5 GL MT", confidence: 50 },
-          { version: "1.5 XLi MT", confidence: 50 },
+          { version: "1.2 PURETECH ACTIVE PACK 75 4X2 MT 5P", confidence: 14 },
         ],
       });
     }
     if (url.pathname.includes("/v1/orders")) {
       orderCalls++;
-      return jsonResponse(202, { orderId: "should-not-be-called" });
+      orderBody = JSON.parse(init.body);
+      return jsonResponse(
+        202,
+        {
+          orderId: "ordb2b_208",
+          reportType: "general-price",
+          status: "PENDING",
+          pollAfterMs: 2000,
+        },
+        { status: 202 },
+      );
     }
     throw new Error(`Ruta no esperada: ${url.pathname}`);
   };
-
   const client = new VehicleValuationClient({
     baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
     tokenUrl: "https://auth.example.com/oauth2/token",
@@ -1278,25 +1293,19 @@ test("orders.createFromTrimText: no_evidence lanza TrimInferenceError sin llamar
     clientSecret: "test-client-secret",
     fetch: mockFetch,
   });
-
-  await assert.rejects(
-    client.orders.createFromTrimText({
-      reportType: "general-price",
-      mark: "Toyota",
-      model: "Yaris",
-      year: 2020,
-      trimText: "auto azul",
-      odometerKm: 45000,
-    }),
-    (err) => {
-      assert(err instanceof TrimInferenceError);
-      assert.equal(err.outcome, "no_evidence");
-      assert.equal(err.versions.length, 2);
-      return true;
-    },
-  );
-
-  assert.equal(orderCalls, 0);
+  const result = await client.orders.createFromTrimText({
+    reportType: "general-price",
+    mark: "PEUGEOT",
+    model: "208",
+    year: 2024,
+    trimText: "208 PURETECH 4X2 1.2",
+    odometerKm: 50000,
+  });
+  assert.equal(result.inference.versionConfidence, "MEDIUM");
+  assert.equal(result.inference.versionBasis, "LOWEST_PRICE");
+  assert.equal(result.selectedVersion, "1.2 PURETECH ACTIVE PACK 75 4X2 MT 5P");
+  assert.equal(orderBody.version, "1.2 PURETECH ACTIVE PACK 75 4X2 MT 5P");
+  assert.equal(orderCalls, 1);
 });
 
 test("orders.createFromTrimText: no_match lanza TrimInferenceError sin llamar a orders.create", async () => {
@@ -1348,7 +1357,7 @@ test("orders.createFromTrimText: no_match lanza TrimInferenceError sin llamar a 
   assert.equal(orderCalls, 0);
 });
 
-test("orders.createFromTrimText: minConfidence bajo umbral lanza TrimInferenceError", async () => {
+test("orders.createFromTrimText: LOW bajo el mínimo por defecto lanza TrimInferenceError", async () => {
   let orderCalls = 0;
 
   const mockFetch = async (input) => {
@@ -1358,6 +1367,8 @@ test("orders.createFromTrimText: minConfidence bajo umbral lanza TrimInferenceEr
       return jsonResponse(200, {
         catalogVersion: "cat-v1",
         outcome: "matched",
+        versionConfidence: "LOW",
+        versionBasis: "MOST_COMMON",
         totalCandidates: 2,
         versions: [
           { version: "1.5 GL MT", confidence: 55 },
@@ -1381,17 +1392,14 @@ test("orders.createFromTrimText: minConfidence bajo umbral lanza TrimInferenceEr
   });
 
   await assert.rejects(
-    client.orders.createFromTrimText(
-      {
-        reportType: "general-price",
-        mark: "Toyota",
-        model: "Yaris",
-        year: 2020,
-        trimText: "1.5 mecanico",
-        odometerKm: 45000,
-      },
-      { minConfidence: 70 },
-    ),
+    client.orders.createFromTrimText({
+      reportType: "general-price",
+      mark: "Toyota",
+      model: "Yaris",
+      year: 2020,
+      trimText: "1.5 mecanico",
+      odometerKm: 45000,
+    }),
     (err) => {
       assert(err instanceof TrimInferenceError);
       assert.equal(err.outcome, "matched");
@@ -1401,6 +1409,43 @@ test("orders.createFromTrimText: minConfidence bajo umbral lanza TrimInferenceEr
   );
 
   assert.equal(orderCalls, 0);
+});
+
+test("orders.createFromTrimText: minVersionConfidence LOW acepta LOW", async () => {
+  const mockFetch = async (input) => {
+    const url = new URL(typeof input === "string" ? input : input.url);
+    if (url.pathname.includes("/oauth2/token")) return tokenResponse();
+    if (url.pathname.includes("/v1/version-inference"))
+      return jsonResponse(200, {
+        catalogVersion: "cat-v1",
+        outcome: "matched",
+        totalCandidates: 1,
+        versionConfidence: "LOW",
+        versionBasis: "MOST_COMMON",
+        versions: [{ version: "1.5 GL MT", confidence: 100 }],
+      });
+    if (url.pathname.includes("/v1/orders"))
+      return jsonResponse(202, { orderId: "ordb2b_low" });
+    throw new Error(`Ruta no esperada: ${url.pathname}`);
+  };
+  const client = new VehicleValuationClient({
+    baseUrl: "https://api.dev.autotia.com/public-secure/shop-b2b",
+    tokenUrl: "https://auth.example.com/oauth2/token",
+    clientId: "test-client-id",
+    clientSecret: "test-client-secret",
+    fetch: mockFetch,
+  });
+  const result = await client.orders.createFromTrimText(
+    {
+      reportType: "general-price",
+      mark: "Toyota",
+      model: "Yaris",
+      year: 2020,
+      trimText: "1.5",
+    },
+    { minVersionConfidence: "LOW" },
+  );
+  assert.equal(result.inference.versionConfidence, "LOW");
 });
 
 test("orders.createFromTrimText: propaga Idempotency-Key solo a orders.create", async () => {
@@ -1415,6 +1460,8 @@ test("orders.createFromTrimText: propaga Idempotency-Key solo a orders.create", 
       return jsonResponse(200, {
         catalogVersion: "cat-v1",
         outcome: "matched",
+        versionConfidence: "MEDIUM",
+        versionBasis: "LOWEST_PRICE",
         totalCandidates: 1,
         versions: [{ version: "1.5 GL MT", confidence: 100 }],
       });
