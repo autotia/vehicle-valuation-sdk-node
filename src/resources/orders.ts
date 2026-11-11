@@ -224,7 +224,7 @@ export class OrdersResource {
    * ```ts
    * const status = await client.orders.get("ordb2b_01j7x000000000000000000000");
    * if (status.status === "COMPLETED" && status.result) {
-   *   console.log("Tasación lista:", status.result.data);
+   *   console.log("Tasación lista:", status.result.sections);
    * }
    * ```
    */
@@ -239,9 +239,6 @@ export class OrdersResource {
       undefined,
       options,
     );
-    if (typeof status.pollAfterMs === "number") {
-      this.#pollIntervals.set(orderId, status.pollAfterMs);
-    }
     return status;
   }
 
@@ -267,7 +264,7 @@ export class OrdersResource {
    * const order = await client.orders.waitUntilComplete("ordb2b_01j7x000000000000000000000", {
    *   timeoutMs: 60000,
    * });
-   * console.log("Resultado completado:", order.result?.data);
+   * console.log("Resultado completado:", order.result?.sections);
    * ```
    */
   public async waitUntilComplete(
