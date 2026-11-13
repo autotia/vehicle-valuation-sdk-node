@@ -22,6 +22,7 @@ import type {
   OrderFromTrimTextResult,
   OrderRequest,
   OrderStatus,
+  VersionConfidence,
 } from "./types.js";
 
 /**
@@ -90,9 +91,9 @@ export class OrdersResource {
    * Infiere la versión de catálogo a partir de un texto libre y solicita inmediatamente la tasación vehicular.
    *
    * @param input Datos del vehículo y texto libre descriptivo de la versión.
-   * @param options Opciones de llamada y umbral mínimo de preferencia (minConfidence).
+   * @param options Opciones de llamada y confianza mínima de versión aceptada.
    * @returns Promesa con el resultado de la inferencia, la versión seleccionada y el pedido creado.
-   * @throws {TrimInferenceError} Si el texto no aporta evidencia suficiente, no coincide con el catálogo o no alcanza minConfidence.
+   * @throws {TrimInferenceError} Si no hay coincidencia o la confianza de versión queda bajo el mínimo.
    * @throws {BadRequestError} Si los parámetros de solicitud son inválidos (HTTP 400).
    * @throws {AuthenticationError} Si las credenciales son inválidas o el token expiró (HTTP 401).
    * @throws {PermissionDeniedError} Si el cliente no tiene autorización (HTTP 403).
@@ -113,7 +114,7 @@ export class OrdersResource {
    *     odometerKm: 38000,
    *     region: "CL-RM",
    *   },
-   *   { minConfidence: 70 },
+   *   { minVersionConfidence: "MEDIUM" },
    * );
    * console.log(`Versión elegida: ${selectedVersion}`);
    * ```
@@ -137,14 +138,6 @@ export class OrdersResource {
       inferenceOptions,
     );
 
-    if (inference.outcome === "no_evidence") {
-      throw new TrimInferenceError(
-        "El texto no aporta evidencia suficiente para determinar una versión.",
-        inference.outcome,
-        inference.versions,
-      );
-    }
-
     if (inference.outcome === "no_match") {
       throw new TrimInferenceError(
         "El texto no coincide con ninguna versión del catálogo para el año indicado.",
@@ -153,26 +146,21 @@ export class OrdersResource {
       );
     }
 
-    const firstCandidate = inference.versions[0];
+    const [firstCandidate] = inference.versions;
+    const confidenceRank: Record<VersionConfidence, number> = {
+      EXACT: 4,
+      HIGH: 3,
+      MEDIUM: 2,
+      LOW: 1,
+    };
+    const minimumConfidence = options.minVersionConfidence ?? "MEDIUM";
     if (
-      inference.outcome !== "matched" ||
-      !inference.versions ||
-      inference.versions.length === 0 ||
-      !firstCandidate
+      confidenceRank[inference.versionConfidence] <
+      confidenceRank[minimumConfidence]
     ) {
       throw new TrimInferenceError(
-        `No fue posible determinar una versión compatible (resultado: ${inference.outcome}).`,
-        inference.outcome,
-        inference.versions ?? [],
-      );
-    }
-    if (
-      options.minConfidence !== undefined &&
-      firstCandidate.confidence < options.minConfidence
-    ) {
-      throw new TrimInferenceError(
-        `La confianza del candidato principal (${firstCandidate.confidence}) es inferior al umbral mínimo requerido (${options.minConfidence}).`,
-        inference.outcome,
+        `La confianza de versión (${inference.versionConfidence}) es inferior al mínimo requerido (${minimumConfidence}).`,
+        "matched",
         inference.versions,
       );
     }
